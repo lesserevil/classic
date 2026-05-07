@@ -27,11 +27,13 @@ Do not relitigate without explicit human approval.
 
 ## Out of scope for v1
 
-- Runtime process migration (CRIU, DMTCP)
-- Authenticated node-to-node communication
-- Multi-tenant resource quotas / namespace isolation between users
-- Kernel modules
-- Distributed POSIX file-system semantics
+The first five each have a roadmap-level design doc under `plans/future/` (status: `future`). They do not have epics/tasks filed yet — those are generated only when a future plan is promoted to v2 work.
+
+- Runtime process migration (CRIU, DMTCP) — see `plans/future/F1-runtime-migration.md`
+- Distributed POSIX file-system semantics / transparent network FS — see `plans/future/F2-transparent-network-fs.md`
+- Custom kernel modules — see `plans/future/F3-kernel-modules.md`
+- Authenticated node-to-node communication / security against malicious nodes — see `plans/future/F4-node-security.md`
+- Multi-tenant resource quotas / namespace isolation — see `plans/future/F5-multitenancy-quotas.md`
 - Cross-architecture mixed clusters (assume homogeneous x86_64 first; aarch64 should compile but is not a v1 test target)
 
 ## Repository layout
@@ -167,3 +169,13 @@ pub const PROTO_VERSION: u32 = 1;
 | 06 | `06-9p-namespace-server.md`       | fs                                   | 01, 05               |
 | 07 | `07-placement-groups.md`          | place, spawn                         | 03, 04               |
 | 08 | `08-multinode-demo.md`            | (integration only)                   | 01-07                |
+
+### Future plans (not v1 — no epics/tasks filed)
+
+| #  | Slug                                       | Topic                                              |
+|----|--------------------------------------------|----------------------------------------------------|
+| F1 | `future/F1-runtime-migration.md`           | Opt-in CRIU / CRIUgpu live migration               |
+| F2 | `future/F2-transparent-network-fs.md`      | Distributed POSIX-ish FS over the 9P namespace     |
+| F3 | `future/F3-kernel-modules.md`              | Conservative carve-out (mostly: don't)             |
+| F4 | `future/F4-node-security.md`               | mTLS, signed gossip, capability tokens, revocation |
+| F5 | `future/F5-multitenancy-quotas.md`         | Tenants, quotas, fair-share, preemption (needs F4) |
