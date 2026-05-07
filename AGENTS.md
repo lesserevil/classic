@@ -220,10 +220,12 @@ Each task description **must** include:
 **Every epic and every task MUST have its dependencies wired before phase 3 is considered complete.** Without dependencies, beads land out of order, produce broken intermediate states, and require rework. Wire them with:
 
 ```bash
-bd dep add <task-id> <epic-id>            # task is part of an epic
-bd dep add <task-id> <prereq-task-id>     # task cannot start until prereq closes
-bd dep add <epic-id> <prereq-epic-id>     # epic ordering
+bd dep add <task-id> <epic-id> --type=parent-child   # task is a child of an epic
+bd dep add <task-id> <prereq-task-id>                # task cannot start until prereq closes (default: blocks)
+bd dep add <epic-id> <prereq-epic-id>                # epic ordering (default: blocks)
 ```
+
+For task-level ordering across epics, also gate each downstream epic's **entry tasks** (those with no intra-epic prereqs) on the **exit task** of the upstream epic (typically the integration-test task). This is what makes `bd ready` respect epic-level ordering — without it, agents will see foundational work in downstream epics surface before upstream epics close.
 
 After filing tasks, verify the dependency graph is correct:
 
