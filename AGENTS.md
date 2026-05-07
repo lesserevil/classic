@@ -148,3 +148,112 @@ For more details, see README.md and docs/QUICKSTART.md.
 - If push fails, resolve and retry until it succeeds
 
 <!-- END BEADS INTEGRATION -->
+
+## Feature Development Workflow
+
+**This is the primary work rhythm of the project.** Read this section in full before doing any planning or implementation work.
+
+### Why this workflow exists
+
+Beads filed in one session may be claimed weeks later by a different agent (or by a human, or by you after compaction). Conversation context, plan-mode plans, scratch notes, and ephemeral memories are not durable — **the design doc and the bead descriptions are the only durable record**. If a fresh agent in a new session, with no memory of the originating conversation, cannot start the work cold from `bd show <id>` plus the linked design doc, the work was not properly planned.
+
+### The four phases (in order)
+
+#### Phase 1 — Write the feature design document
+
+Path: `plans/<short-feature-slug>.md`
+
+Every design doc must contain these sections, in this order:
+
+- **Scope** — what is in, what is explicitly out
+- **Reasoning** — why we are doing this, the problem it solves, alternatives considered and rejected
+- **Design** — architecture, data shapes, wire formats, key interfaces, file/crate layout, sequence diagrams where useful
+- **Requirements** — functional and non-functional (perf targets, compatibility, security, target hardware)
+- **Testing plan** — unit / integration / e2e tests that will prove correctness, including how each will be run
+- **Acceptance criteria** — explicit, testable checklist for "done"
+
+A starting template lives at `plans/TEMPLATE.md`.
+
+The doc is the source of truth. Beads link to it (with a commit SHA) and excerpt the slice each one needs to be self-contained — they do not duplicate the whole doc.
+
+#### Phase 2 — File the epic bead
+
+```bash
+bd create --type=epic --priority=<0-4> \
+  --title="Feature: <name>" \
+  --description="<elevator pitch + path to plans/<slug>.md @ <commit-sha>>" \
+  --design="<key design decisions, copied from the doc>" \
+  --acceptance="<acceptance criteria, copied verbatim from the doc>"
+```
+
+One epic per feature. The epic is the rallying point; it carries no implementation work itself.
+
+If the epic depends on another epic (e.g. "GPU discovery" depends on "Skeleton + transport"), wire the dependency immediately:
+
+```bash
+bd dep add <this-epic-id> <prereq-epic-id>
+```
+
+#### Phase 3 — File implementation task beads under the epic
+
+Break the epic into tasks small enough for one agent session. For each task:
+
+```bash
+bd create --type=task --priority=<0-4> \
+  --title="<concrete deliverable>" \
+  --description="<everything needed to start cold — see required content below>" \
+  --acceptance="<task-specific acceptance criteria>"
+```
+
+Each task description **must** include:
+
+- The slice of the design doc relevant to this task, **excerpted** (not just linked — docs change)
+- A pointer to the design doc at a specific commit SHA
+- Inputs: file paths to read, existing crates/modules to extend, message formats to honor
+- Outputs: file paths to create or modify, function signatures, public APIs, wire-format additions
+- Test plan for *this* task (commands to run, fixtures needed)
+- Acceptance criteria for *this* task
+- Any non-obvious context the task needs (env vars, hardware required to test, fixtures to mock)
+
+#### Mandatory: dependency tracking on every bead
+
+**Every epic and every task MUST have its dependencies wired before phase 3 is considered complete.** Without dependencies, beads land out of order, produce broken intermediate states, and require rework. Wire them with:
+
+```bash
+bd dep add <task-id> <epic-id>            # task is part of an epic
+bd dep add <task-id> <prereq-task-id>     # task cannot start until prereq closes
+bd dep add <epic-id> <prereq-epic-id>     # epic ordering
+```
+
+After filing tasks, verify the dependency graph is correct:
+
+```bash
+bd ready                # tasks with NO unmet prereqs — should match phase-1 tasks only
+bd blocked              # tasks waiting on prereqs — should match downstream tasks
+bd show <epic-id>       # check the full graph
+bd orphans              # MUST be empty — orphans mean broken deps
+```
+
+If `bd ready` shows tasks that should be later, or `bd blocked` is missing tasks you expect, **fix the dependency graph before declaring the planning phase complete**.
+
+#### Phase 4 — Stop. Wait for human approval to start
+
+Do not begin implementation. After phases 1–3 are complete:
+
+1. Summarize the filed work (epic IDs, task counts, top-level dependency order).
+2. Stop and wait for the human to explicitly say "start `<bead-id>`" or "work the next ready issue".
+
+### Definition of "ready to implement"
+
+Before reporting that a feature's beads are ready for human approval to start:
+
+- [ ] Design doc exists at `plans/<slug>.md`, committed
+- [ ] Epic bead is filed and references the design doc + commit SHA
+- [ ] Every implementation task is filed under the epic
+- [ ] Every task has its dependency edges wired (`bd dep add` to epic + any prereq tasks)
+- [ ] Every task description is self-contained per the phase-3 checklist
+- [ ] `bd lint` reports clean
+- [ ] `bd doctor --check=conventions` reports clean
+- [ ] `bd orphans` is empty
+- [ ] `bd ready` shows the expected first-tier tasks (those with no prerequisites)
+- [ ] `bd blocked` shows all downstream tasks correctly waiting
