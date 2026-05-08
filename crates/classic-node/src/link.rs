@@ -1,5 +1,5 @@
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncWrite, ReadHalf, WriteHalf};
@@ -8,11 +8,20 @@ use tracing::{info, warn};
 
 use classic_proto::{
     decode_frame, decode_payload, encode_frame, encode_payload, ByePayload, CodecError,
-    ErrorCode, ErrorPayload, Frame, FrameKind, HelloPayload, NodeId, PROTO_VERSION,
+    ErrorCode, ErrorPayload, Frame, FrameKind, FrameMux, HeartbeatPayload, HelloPayload,
+    NodeId, PROTO_VERSION,
 };
+
+use crate::proto_handler::{ProtoHandler, ProtoSignal};
 
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 const PEER_CHANNEL_DEPTH: usize = 1024;
+/// Default heartbeat tick. Overridden in unit tests via
+/// `LinkRuntimeConfig::heartbeat_period`.
+pub const DEFAULT_HEARTBEAT_PERIOD: Duration = Duration::from_secs(5);
+/// Number of consecutive ticks without an inbound frame before flipping to
+/// Unhealthy (15 s at the default heartbeat period).
+pub const DEFAULT_MISS_THRESHOLD: u8 = 3;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum PeerRole {
@@ -336,6 +345,135 @@ pub async fn send_bye<W: AsyncWrite + Unpin>(writer: &mut W) -> Result<(), Codec
     encode_frame(writer, &frame).await
 }
 
+/// Tunables for `run_peer_link`. Tests use shorter intervals; production
+/// uses the defaults exported above.
+#[derive(Clone, Debug)]
+pub struct LinkRuntimeConfig {
+    pub heartbeat_period: Duration,
+    pub miss_threshold: u8,
+}
+
+impl Default for LinkRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            heartbeat_period: DEFAULT_HEARTBEAT_PERIOD,
+            miss_threshold: DEFAULT_MISS_THRESHOLD,
+        }
+    }
+}
+
+/// Drive a healthy `PeerLink` until it closes. Sends Heartbeat at the
+/// configured interval, dispatches inbound frames into `mux` (which routes
+/// proto-range frames to `proto`), tracks the miss counter and Healthy /
+/// Unhealthy transitions, and honours peer Bye / fatal Error.
+///
+/// Returns the `CloseReason` once the loop ends. The caller is expected to
+/// have already wired `proto` into `mux` at high byte 0x00.
+pub async fn run_peer_link<S>(
+    halves: LinkHalves<S>,
+    mux: Arc<FrameMux>,
+    proto: Arc<ProtoHandler>,
+    cfg: LinkRuntimeConfig,
+) -> CloseReason
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let LinkHalves { peer_id, peer_listen_addr: _, role, state, mut reader, mut writer, send_tx: _, send_rx } =
+        halves;
+    let mut send_rx = send_rx.expect("LinkHalves.send_rx must be present once");
+
+    // Per-peer signal channel from the global ProtoHandler.
+    let (proto_tx, mut proto_rx) = tokio::sync::mpsc::channel::<ProtoSignal>(8);
+    proto.register(peer_id, proto_tx);
+
+    let mut hb_seq: u64 = 0;
+    let start = Instant::now();
+    let mut hb_interval = tokio::time::interval(cfg.heartbeat_period);
+    hb_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // The first tick fires immediately; consume it so the first real check
+    // happens one full period after start, not at t=0.
+    hb_interval.tick().await;
+
+    let mut inbound_since_last_tick = true; // count startup as a heartbeat
+    let mut missed: u8 = 0;
+
+    let close_reason = loop {
+        tokio::select! {
+            biased;
+
+            // Peer-initiated Bye / fatal Error.
+            Some(sig) = proto_rx.recv() => {
+                match sig {
+                    ProtoSignal::PeerBye => {
+                        let _ = send_bye(&mut writer).await;
+                        break CloseReason::PeerBye;
+                    }
+                    ProtoSignal::PeerError(_) => {
+                        break CloseReason::PeerError;
+                    }
+                }
+            }
+
+            // Inbound frame.
+            frame_result = decode_frame(&mut reader) => {
+                match frame_result {
+                    Ok(frame) => {
+                        inbound_since_last_tick = true;
+                        // Recovery from Unhealthy on any inbound frame.
+                        let was_unhealthy = matches!(*state.read().expect("state poisoned"), PeerState::Unhealthy);
+                        if was_unhealthy {
+                            transition(&state, Some(peer_id), role, PeerState::Healthy);
+                            missed = 0;
+                        }
+                        mux.dispatch(peer_id, frame);
+                    }
+                    Err(_) => break CloseReason::TransportLost,
+                }
+            }
+
+            // Outbound frame from a sender of this link's mpsc.
+            Some(frame) = send_rx.recv() => {
+                if encode_frame(&mut writer, &frame).await.is_err() {
+                    break CloseReason::TransportLost;
+                }
+            }
+
+            // Heartbeat tick.
+            _ = hb_interval.tick() => {
+                // Liveness check first, so a tick following silence raises
+                // missed before we send our own heartbeat.
+                if inbound_since_last_tick {
+                    missed = 0;
+                } else {
+                    missed = missed.saturating_add(1);
+                    if missed >= cfg.miss_threshold {
+                        let was_healthy = matches!(*state.read().expect("state poisoned"), PeerState::Healthy);
+                        if was_healthy {
+                            transition(&state, Some(peer_id), role, PeerState::Unhealthy);
+                        }
+                    }
+                }
+                inbound_since_last_tick = false;
+
+                // Send heartbeat. send_time_ns is monotonic-since-start —
+                // good enough for plan 01's RTT-only use; we don't need a
+                // wall-clock here.
+                let send_time_ns = start.elapsed().as_nanos() as u64;
+                let payload = encode_payload(&HeartbeatPayload { seq: hb_seq, send_time_ns }).unwrap();
+                hb_seq = hb_seq.saturating_add(1);
+                let frame = Frame::new(FrameKind::Heartbeat as u16, Bytes::from(payload));
+                if encode_frame(&mut writer, &frame).await.is_err() {
+                    break CloseReason::TransportLost;
+                }
+            }
+        }
+    };
+
+    proto.deregister(peer_id);
+    transition(&state, Some(peer_id), role, PeerState::Closed(close_reason));
+    close_reason
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,5 +648,275 @@ mod tests {
 
         let res = a_task.await.unwrap();
         assert_eq!(res.unwrap_err(), CloseReason::HandshakeRejected);
+    }
+
+    // -------- run_peer_link / heartbeat behaviour tests --------
+
+    use classic_proto::HeartbeatPayload;
+
+    /// Set up a healthy duplex link pair: both sides handshake, then the
+    /// dialer is run via `run_peer_link`. Returns the dialer-side join
+    /// handle and the listener-side raw read/write halves so the test can
+    /// stand in as the peer.
+    async fn healthy_pair(
+        cfg: LinkRuntimeConfig,
+    ) -> (
+        tokio::task::JoinHandle<CloseReason>,
+        Arc<RwLock<PeerState>>,
+        Arc<FrameMux>,
+        Arc<ProtoHandler>,
+        ReadHalf<tokio::io::DuplexStream>,
+        WriteHalf<tokio::io::DuplexStream>,
+    ) {
+        let (a, b) = duplex(64 * 1024);
+        let id_a = id(1);
+        let id_b = id(2);
+        let a_task = tokio::spawn(async move {
+            handshake(a, PeerRole::Dialer, id_a, "a:1".into(), &NoExisting).await
+        });
+        let b_task = tokio::spawn(async move {
+            handshake(b, PeerRole::Listener, id_b, "b:1".into(), &NoExisting).await
+        });
+        let la = a_task.await.unwrap().unwrap();
+        let lb = b_task.await.unwrap().unwrap();
+        let state = la.state_handle();
+        let halves = la.into_halves();
+
+        let mux = Arc::new(FrameMux::new());
+        let proto = ProtoHandler::new();
+        mux.register(0x00, proto.clone()).unwrap();
+
+        let runtime = tokio::spawn(run_peer_link(halves, mux.clone(), proto.clone(), cfg));
+
+        let lb_halves = lb.into_halves();
+        // Drop the listener-side proto/mux infrastructure; we manipulate
+        // the wire directly in tests.
+        (runtime, state, mux, proto, lb_halves.reader, lb_halves.writer)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn heartbeat_unhealthy_after_three_misses() {
+        let cfg = LinkRuntimeConfig {
+            heartbeat_period: Duration::from_millis(100),
+            miss_threshold: 3,
+        };
+        let (runtime, state, _mux, proto, mut peer_reader, _peer_writer) = healthy_pair(cfg).await;
+
+        // Drain whatever heartbeats the dialer emits so its writer doesn't
+        // back-pressure during the test, but never feed inbound frames back.
+        let drain = tokio::spawn(async move {
+            loop {
+                if decode_frame(&mut peer_reader).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        // Wait long enough for >= 3 ticks with no inbound. With period 100ms
+        // and threshold 3, 400ms is comfortably enough.
+        tokio::time::advance(Duration::from_millis(450)).await;
+        // Yield so the runtime task gets scheduled at the new logical time.
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_millis(10)).await;
+        tokio::task::yield_now().await;
+
+        // Poll the state until Unhealthy is observed (bounded retries to
+        // avoid wedging if scheduling is unlucky).
+        let mut saw_unhealthy = false;
+        for _ in 0..50 {
+            if matches!(*state.read().unwrap(), PeerState::Unhealthy) {
+                saw_unhealthy = true;
+                break;
+            }
+            tokio::time::advance(Duration::from_millis(50)).await;
+            tokio::task::yield_now().await;
+        }
+        assert!(saw_unhealthy, "expected Unhealthy after 3 missed heartbeats");
+
+        // Drop the peer side to end the runtime.
+        drop(_peer_writer);
+        drain.abort();
+        let _ = runtime.await.unwrap();
+        proto.deregister(id(2));
+    }
+
+    /// Recovery is exercised against real wall-clock time with a tight
+    /// heartbeat period. Paused-time orchestration would be neater but
+    /// yields and time::advance interleavings make the polling loop too
+    /// fragile when both the link runtime and a wire-drain task are racing
+    /// for the executor.
+    #[tokio::test]
+    async fn heartbeat_recovers_on_inbound_frame() {
+        let cfg = LinkRuntimeConfig {
+            heartbeat_period: Duration::from_millis(20),
+            miss_threshold: 3,
+        };
+        let (runtime, state, _mux, proto, mut peer_reader, mut peer_writer) =
+            healthy_pair(cfg).await;
+
+        // Drain dialer-side heartbeats so the duplex pipe never fills, but
+        // we never write back, driving missed-counter past threshold.
+        let drain = tokio::spawn(async move {
+            loop {
+                if decode_frame(&mut peer_reader).await.is_err() {
+                    break;
+                }
+            }
+            peer_reader
+        });
+
+        let unhealthy = wait_for_state(&state, PeerState::Unhealthy, Duration::from_secs(2)).await;
+        assert!(unhealthy, "expected Unhealthy within 2s; got {:?}", *state.read().unwrap());
+
+        // Feed an inbound Heartbeat from the peer side; recovery should fire.
+        let hb = HeartbeatPayload { seq: 0, send_time_ns: 0 };
+        let bytes = encode_payload(&hb).unwrap();
+        let frame = Frame::new(FrameKind::Heartbeat as u16, Bytes::from(bytes));
+        encode_frame(&mut peer_writer, &frame).await.unwrap();
+
+        let healthy = wait_for_state(&state, PeerState::Healthy, Duration::from_secs(2)).await;
+        assert!(healthy, "expected Healthy within 2s; got {:?}", *state.read().unwrap());
+
+        drop(peer_writer);
+        drain.abort();
+        let _ = runtime.await.unwrap();
+        proto.deregister(id(2));
+    }
+
+    async fn wait_for_state(
+        state: &Arc<RwLock<PeerState>>,
+        target: PeerState,
+        budget: Duration,
+    ) -> bool {
+        let deadline = std::time::Instant::now() + budget;
+        loop {
+            if *state.read().unwrap() == target {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn bye_clean_close() {
+        let cfg = LinkRuntimeConfig {
+            heartbeat_period: Duration::from_secs(60), // disable for this test
+            miss_threshold: 99,
+        };
+        let (runtime, state, _mux, _proto, mut peer_reader, mut peer_writer) =
+            healthy_pair(cfg).await;
+
+        // Send Bye to the dialer.
+        let bye = Frame::new(
+            FrameKind::Bye as u16,
+            Bytes::from(encode_payload(&ByePayload).unwrap()),
+        );
+        encode_frame(&mut peer_writer, &bye).await.unwrap();
+
+        // Expect to read a Bye back on this side.
+        let mut saw_bye = false;
+        for _ in 0..10 {
+            match decode_frame(&mut peer_reader).await {
+                Ok(f) if f.kind == FrameKind::Bye as u16 => {
+                    saw_bye = true;
+                    break;
+                }
+                Ok(_) => continue,
+                Err(_) => break,
+            }
+        }
+        assert!(saw_bye, "expected reciprocal Bye frame");
+
+        let close_reason = runtime.await.unwrap();
+        assert_eq!(close_reason, CloseReason::PeerBye);
+        assert!(matches!(
+            *state.read().unwrap(),
+            PeerState::Closed(CloseReason::PeerBye)
+        ));
+    }
+
+    #[tokio::test]
+    async fn error_fatal_close() {
+        let cfg = LinkRuntimeConfig {
+            heartbeat_period: Duration::from_secs(60),
+            miss_threshold: 99,
+        };
+        let (runtime, state, _mux, _proto, _peer_reader, mut peer_writer) =
+            healthy_pair(cfg).await;
+
+        let payload = encode_payload(&ErrorPayload {
+            code: ErrorCode::ProtoVersionMismatch,
+            message: "v2".into(),
+        })
+        .unwrap();
+        let err_frame = Frame::new(FrameKind::Error as u16, Bytes::from(payload));
+        encode_frame(&mut peer_writer, &err_frame).await.unwrap();
+
+        let close_reason = runtime.await.unwrap();
+        assert_eq!(close_reason, CloseReason::PeerError);
+        assert!(matches!(
+            *state.read().unwrap(),
+            PeerState::Closed(CloseReason::PeerError)
+        ));
+    }
+
+    #[tokio::test]
+    async fn unknown_kind_dropped_link_stays_open() {
+        let cfg = LinkRuntimeConfig {
+            heartbeat_period: Duration::from_secs(60),
+            miss_threshold: 99,
+        };
+        let (runtime, state, _mux, _proto, mut peer_reader, mut peer_writer) =
+            healthy_pair(cfg).await;
+
+        // Drain background heartbeats (none expected, period is 60s).
+        let drain = tokio::spawn(async move {
+            let _ = decode_frame(&mut peer_reader).await;
+            peer_reader
+        });
+
+        // Frame in an unregistered range (high byte 0x07).
+        let f = Frame::new(0x0723, Bytes::from_static(b"junk"));
+        encode_frame(&mut peer_writer, &f).await.unwrap();
+        // Give the dispatch loop a chance to run.
+        tokio::task::yield_now().await;
+        for _ in 0..10 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        assert!(matches!(*state.read().unwrap(), PeerState::Healthy));
+
+        drop(peer_writer);
+        drain.abort();
+        let close_reason = runtime.await.unwrap();
+        assert_eq!(close_reason, CloseReason::TransportLost);
+    }
+
+    #[tokio::test]
+    async fn heartbeat_seq_monotonic() {
+        let cfg = LinkRuntimeConfig {
+            heartbeat_period: Duration::from_millis(20),
+            miss_threshold: 99,
+        };
+        let (runtime, _state, _mux, _proto, mut peer_reader, peer_writer) =
+            healthy_pair(cfg).await;
+
+        let mut seqs = Vec::new();
+        for _ in 0..5 {
+            let f = decode_frame(&mut peer_reader).await.unwrap();
+            if f.kind == FrameKind::Heartbeat as u16 {
+                let p: HeartbeatPayload = decode_payload(&f.payload).unwrap();
+                seqs.push(p.seq);
+            }
+        }
+        for w in seqs.windows(2) {
+            assert!(w[0] < w[1], "seqs must be strictly increasing: {:?}", seqs);
+        }
+
+        drop(peer_writer);
+        drop(peer_reader);
+        let _ = runtime.await.unwrap();
     }
 }
