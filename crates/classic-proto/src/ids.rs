@@ -1,8 +1,9 @@
+use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 /// 128-bit non-recurring per-node identity. Generated on daemon first start
 /// and persisted under `$CLASSIC_STATE_DIR/node_id`.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Encode, Decode)]
 pub struct NodeId(pub [u8; 16]);
 
 impl NodeId {
@@ -35,7 +36,7 @@ impl std::fmt::Display for NodeId {
 /// Per-task mailbox id, allocated by the local node. Non-recurring within the
 /// node's lifetime; reset on daemon restart. `MboxId(0)` is reserved for the
 /// per-node kernel/control mailbox.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize, Encode, Decode)]
 pub struct MboxId(pub u64);
 
 impl MboxId {
@@ -49,7 +50,7 @@ impl std::fmt::Display for MboxId {
 }
 
 /// Cluster-wide address: a `(NodeId, MboxId)` pair.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize, Encode, Decode)]
 pub struct NetId {
     pub node: NodeId,
     pub mbox: MboxId,
