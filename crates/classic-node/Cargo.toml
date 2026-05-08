@@ -16,14 +16,19 @@ path = "src/main.rs"
 [dependencies]
 classic-proto = { path = "../classic-proto" }
 bytes = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+dashmap = { workspace = true }
 dirs = { workspace = true }
 getrandom = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 toml = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 
 [dev-dependencies]
+classic-proto = { path = "../classic-proto" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "test-util", "time"] }
