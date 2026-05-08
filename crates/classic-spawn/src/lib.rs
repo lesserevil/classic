@@ -16,11 +16,17 @@ use std::sync::Arc;
 use classic_proto::{Frame, FrameHandler, NodeId};
 use tracing::{debug, info, warn};
 
+pub mod error;
 pub mod exec;
+pub mod executor;
 pub mod mbox_alloc;
+pub mod originator;
 
+pub use error::SpawnError;
 pub use exec::{exec_command, ChildExitInfo, ChildHandle, ExecError, STDIO_CHANNEL_CAP};
+pub use executor::{run_executor, LocalAdMatcher, NoOpScopeProvider, ScopeProvider};
 pub use mbox_alloc::MboxAllocator;
+pub use originator::{run_originator, AttemptOutcome, OriginatorState, PeerSpawn, Placer};
 
 /// FrameHandler the daemon installs at slot `0x03` of the FrameMux.
 /// Holds whatever state classic-spawn needs to route inbound frames; for
