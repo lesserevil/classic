@@ -161,6 +161,7 @@ name = "classic-ad"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "bytes",
  "classic-proto",
  "rand",
  "serde",

@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 classic-proto = { path = "../classic-proto" }
 bincode = { workspace = true }
+bytes = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
