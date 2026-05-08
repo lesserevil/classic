@@ -8,6 +8,7 @@ pub mod version;
 pub use conn::Connection;
 pub use frame::{decode_frame, encode_frame, CodecError, Frame, FrameKind, MAX_FRAME_SIZE};
 pub use ids::{MboxId, NetId, NodeId};
+pub use mux::{FrameHandler, FrameMux, MuxError, MUX_SLOTS};
 pub use proto::{
     decode_payload, encode_payload, ByePayload, ErrorCode, ErrorPayload, HeartbeatPayload,
     HelloPayload,
