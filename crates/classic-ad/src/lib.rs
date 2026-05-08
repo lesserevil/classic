@@ -4,6 +4,7 @@ pub mod discovery_loop;
 pub mod frames;
 pub mod gossip;
 pub mod schema;
+pub mod start;
 pub mod store;
 
 pub use config::{AdConfig, AdConfigError};
@@ -18,4 +19,5 @@ pub use schema::{
     AdGossip, AdRequest, AdUpdate, CpuInfo, GpuInfo, LoadSample, MemInfo, NodeAd, NumaNode,
     PciDevice,
 };
+pub use start::{start, AdHandles, StartError};
 pub use store::{AdStore, UpsertOutcome};

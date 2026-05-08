@@ -182,7 +182,12 @@ version = "0.1.0"
 name = "classic-cli"
 version = "0.1.0"
 dependencies = [
+ "clap",
+ "classic-ad",
  "classic-node",
+ "classic-proto",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -205,12 +210,14 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "clap",
+ "classic-ad",
  "classic-proto",
  "dashmap",
  "dirs",
  "getrandom 0.2.17",
  "rand",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

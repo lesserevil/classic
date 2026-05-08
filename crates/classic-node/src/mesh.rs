@@ -40,6 +40,13 @@ struct LinkHandle {
     sender: mpsc::Sender<Frame>,
 }
 
+/// Subscriber to peer-up / peer-down events. Used by upper layers (gossip,
+/// service directory) to react to mesh state changes without polling.
+pub trait LinkListener: Send + Sync {
+    fn on_peer_up(&self, peer: NodeId);
+    fn on_peer_down(&self, peer: NodeId);
+}
+
 pub struct PeerMesh {
     self_id: NodeId,
     self_listen_addr: String,
@@ -50,6 +57,9 @@ pub struct PeerMesh {
     shutdown_tx: watch::Sender<bool>,
     shutdown_rx: watch::Receiver<bool>,
     tasks: tokio::sync::Mutex<Vec<JoinHandle<()>>>,
+    /// Optional subscribers to peer-up / peer-down events. Pushed onto by
+    /// `add_link_listener`; iterated when run_link enters / exits Healthy.
+    listeners: std::sync::RwLock<Vec<Arc<dyn LinkListener>>>,
 }
 
 impl PeerMesh {
@@ -71,7 +81,34 @@ impl PeerMesh {
             shutdown_tx,
             shutdown_rx,
             tasks: tokio::sync::Mutex::new(Vec::new()),
+            listeners: std::sync::RwLock::new(Vec::new()),
         })
+    }
+
+    /// Register a peer-up / peer-down listener. Listeners fire after the
+    /// link is recorded in / removed from the live table.
+    pub fn add_link_listener(&self, listener: Arc<dyn LinkListener>) {
+        self.listeners
+            .write()
+            .expect("listeners poisoned")
+            .push(listener);
+    }
+
+    /// Live peer NodeIds. Used by gossip / service directory broadcasts.
+    pub fn live_peers(&self) -> Vec<NodeId> {
+        self.links.iter().map(|e| *e.key()).collect()
+    }
+
+    /// Send a frame to one peer. Fire-and-forget — if the per-link mpsc is
+    /// full or closed, the frame is dropped with a debug log; the caller
+    /// is not blocked. Senders that need delivery confirmation should use
+    /// the higher-level RPC primitives once they exist.
+    pub fn send_to(&self, peer: NodeId, frame: Frame) {
+        if let Some(handle) = self.links.get(&peer) {
+            if let Err(_) = handle.sender.try_send(frame) {
+                tracing::debug!(?peer, "dropped outbound frame: link queue full or closed");
+            }
+        }
     }
 
     pub fn self_id(&self) -> NodeId {
@@ -273,11 +310,23 @@ where
         peer_id,
         LinkHandle { addr: display_addr, state: state.clone(), sender },
     );
+    // Notify subscribers (gossip, etc.) that a peer is healthy.
+    for l in mesh.listeners.read().expect("listeners poisoned").iter() {
+        l.on_peer_up(peer_id);
+    }
     let close = run_peer_link(halves, mesh.mux.clone(), mesh.proto.clone(), mesh.cfg.clone()).await;
     info!(peer_id = %peer_id, ?close, "peer link closed");
     // Only remove our entry if it still points at this link's state; otherwise
     // a tiebreak winner has already taken over and we mustn't drop their handle.
-    mesh.links.remove_if(&peer_id, |_, h| Arc::ptr_eq(&h.state, &state));
+    let removed = mesh
+        .links
+        .remove_if(&peer_id, |_, h| Arc::ptr_eq(&h.state, &state))
+        .is_some();
+    if removed {
+        for l in mesh.listeners.read().expect("listeners poisoned").iter() {
+            l.on_peer_down(peer_id);
+        }
+    }
 }
 
 fn sleep_with_jitter(base: Duration, shutdown_rx: &mut watch::Receiver<bool>) -> JitterSleep<'_> {

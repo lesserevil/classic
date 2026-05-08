@@ -11,4 +11,9 @@ name = "classic"
 path = "src/main.rs"
 
 [dependencies]
+classic-ad = { path = "../classic-ad" }
 classic-node = { path = "../classic-node" }
+classic-proto = { path = "../classic-proto" }
+clap = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "io-util"] }
