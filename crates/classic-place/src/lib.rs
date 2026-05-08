@@ -1,16 +1,20 @@
 pub mod ast;
 pub mod error;
+pub mod eval;
 pub mod frame;
 pub mod lex;
+pub mod model;
 pub mod parse;
 pub mod typeck;
 
 pub use ast::{AggOp, BinOp, Expr, Rank, Requirement, UnaryOp};
 pub use error::{ParseError, ParseErrorKind};
+pub use eval::{matches, score};
 pub use frame::{
     PlaceErrKind, PlacedCandidate, PlacementError, PlacementRequest, PlacementResponse,
 };
 pub use lex::{lex, Pos, TokKind, Token, MAX_SRC_LEN};
+pub use model::{CpuAd, GpuAd, LoadAd, MemAd, NodeAd, OsAd, PciAd};
 pub use parse::parse_expr;
 pub use typeck::{check_rank, check_req, Ty};
 
