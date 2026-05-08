@@ -8,5 +8,11 @@ publish.workspace = true
 
 [dependencies]
 classic-cap = { path = "../classic-cap" }
-classic-place = { path = "../classic-place" }
 classic-mbox = { path = "../classic-mbox" }
+classic-place = { path = "../classic-place" }
+classic-proto = { path = "../classic-proto" }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+bytes = { workspace = true }

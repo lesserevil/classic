@@ -212,6 +212,7 @@ dependencies = [
  "clap",
  "classic-ad",
  "classic-proto",
+ "classic-spawn",
  "dashmap",
  "dirs",
  "getrandom 0.2.17",
@@ -254,9 +255,13 @@ dependencies = [
 name = "classic-spawn"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "classic-cap",
  "classic-mbox",
  "classic-place",
+ "classic-proto",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]

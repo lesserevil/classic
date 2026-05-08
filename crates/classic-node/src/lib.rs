@@ -93,6 +93,9 @@ pub async fn spawn_node_with_ad_config(
     let mux = Arc::new(FrameMux::new());
     let proto = ProtoHandler::new();
     mux.register(0x00, proto.clone()).expect("0x00 is a valid range");
+    // Stub spawn handler at slot 0x03 — Task 6 swaps in real routing.
+    mux.register(0x03, classic_spawn::SpawnHandler::new())
+        .expect("0x03 is a valid range");
 
     let mesh = PeerMesh::new(
         self_id,
