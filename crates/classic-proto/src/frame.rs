@@ -27,6 +27,10 @@ pub enum FrameKind {
     NodeAd = 0x0100,
     AdGossip = 0x0101,
     AdRequest = 0x0102,
+    // place range (0x0500..=0x05FF) — owned by classic-place
+    PlaceRequest = 0x0501,
+    PlaceResponse = 0x0502,
+    PlaceError = 0x0503,
 }
 
 impl From<FrameKind> for u16 {
