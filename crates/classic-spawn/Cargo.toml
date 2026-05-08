@@ -1,0 +1,12 @@
+[package]
+name = "classic-spawn"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+classic-cap = { path = "../classic-cap" }
+classic-place = { path = "../classic-place" }
+classic-mbox = { path = "../classic-mbox" }

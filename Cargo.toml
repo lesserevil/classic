@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/classic-proto",
+    "crates/classic-ad",
+    "crates/classic-place",
+    "crates/classic-mbox",
+    "crates/classic-fs",
+    "crates/classic-cap",
+    "crates/classic-spawn",
+    "crates/classic-node",
+    "crates/classic-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+async-trait = "0.1"
+bincode = "2.0"
+bytes = "1.7"
+clap = "4.5"
+dashmap = "6.1"
+dirs = "5.0"
+getrandom = "0.2"
+rand = "0.8"
+serde = "1.0"
+tempfile = "3.10"
+thiserror = "2.0"
+tokio = "1.40"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = "0.3"
