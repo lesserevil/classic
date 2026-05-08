@@ -16,12 +16,14 @@ use std::sync::Arc;
 use classic_proto::{Frame, FrameHandler, NodeId};
 use tracing::{debug, info, warn};
 
+pub mod deny;
 pub mod error;
 pub mod exec;
 pub mod executor;
 pub mod mbox_alloc;
 pub mod originator;
 
+pub use deny::{format_candidate_denials, render_deny, terminal_reason, CandidateDenial};
 pub use error::SpawnError;
 pub use exec::{exec_command, ChildExitInfo, ChildHandle, ExecError, STDIO_CHANNEL_CAP};
 pub use executor::{run_executor, LocalAdMatcher, NoOpScopeProvider, ScopeProvider};
