@@ -1,5 +1,6 @@
 pub mod frames;
 pub mod schema;
+pub mod store;
 
 pub use frames::{
     decode_ad_frame, encode_ad_gossip, encode_ad_request, encode_node_ad, AdFrameError,
@@ -9,3 +10,4 @@ pub use schema::{
     AdGossip, AdRequest, AdUpdate, CpuInfo, GpuInfo, LoadSample, MemInfo, NodeAd, NumaNode,
     PciDevice,
 };
+pub use store::{AdStore, UpsertOutcome};

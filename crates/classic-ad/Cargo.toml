@@ -10,11 +10,15 @@ publish.workspace = true
 classic-proto = { path = "../classic-proto" }
 bincode = { workspace = true }
 bytes = { workspace = true }
+futures = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tokio-stream = { workspace = true, features = ["sync"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
 bincode = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "test-util", "time"] }
