@@ -7,6 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub mod cpu;
+pub mod gpu;
 pub mod load;
 pub mod mem;
 pub mod numa;
