@@ -7,9 +7,14 @@
 //! attach + sync paths against the same broker.
 
 pub mod broker;
+pub mod cgroup;
 pub mod nvidia;
 
 pub use broker::{
     AcquireError, BdfAddr, CapBroker, CapSnapshot, DeviceCap, DeviceKind,
+};
+pub use cgroup::{
+    create_scope, ensure_slice, RealSysroot, ScopeHandle, Sysroot, CGROUP_REL, PIDS_MAX,
+    SUBTREE_CONTROL,
 };
 pub use nvidia::list_nvidia_minors;

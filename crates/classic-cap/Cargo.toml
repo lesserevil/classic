@@ -10,3 +10,6 @@ publish.workspace = true
 classic-proto = { path = "../classic-proto" }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
