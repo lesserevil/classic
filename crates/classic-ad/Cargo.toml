@@ -21,4 +21,5 @@ tracing = { workspace = true }
 bincode = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "test-util", "time"] }

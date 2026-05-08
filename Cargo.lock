@@ -166,6 +166,7 @@ dependencies = [
  "futures",
  "rand",
  "serde",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
