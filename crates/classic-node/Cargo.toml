@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 classic-ad = { path = "../classic-ad" }
 classic-proto = { path = "../classic-proto" }
+classic-spawn = { path = "../classic-spawn" }
 bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 dashmap = { workspace = true }

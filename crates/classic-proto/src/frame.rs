@@ -27,6 +27,12 @@ pub enum FrameKind {
     NodeAd = 0x0100,
     AdGossip = 0x0101,
     AdRequest = 0x0102,
+    // spawn range (0x0300..=0x03FF) — owned by classic-spawn
+    SpawnRequest = 0x0300,
+    SpawnAck = 0x0301,
+    SpawnDeny = 0x0302,
+    ChildStdio = 0x0303,
+    ChildExit = 0x0304,
     // place range (0x0500..=0x05FF) — owned by classic-place
     PlaceRequest = 0x0501,
     PlaceResponse = 0x0502,
