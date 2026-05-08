@@ -1,17 +1,26 @@
-//! Spawn pipeline: originator + executor state machines (Task 6 fills
-//! these in), exec+monitor (Task 7), wired through CLI control socket
-//! and peer mux. This crate's public surface is built up across the
-//! plan-04 task series.
+//! Spawn pipeline: originator + executor primitives. Plan-04
+//! (`plans/04-spawn-pipeline.md`) is the design source.
 //!
-//! For now, only `SpawnHandler` exists — a `FrameHandler` that classic-node
-//! registers at high byte 0x03 of the FrameMux. Inbound spawn-range
-//! frames land here and are forwarded to `dispatch_frame`, which Task 6
-//! (originator/executor state machines) will replace with real routing.
+//! Public surface:
+//! - `SpawnHandler` (FrameMux handler at slot 0x03) — registered by
+//!   classic-node. Replaces a stub from Task 5 with the real
+//!   originator/executor dispatch in Task 6.
+//! - `MboxAllocator` — per-daemon monotonic counter for assigning
+//!   `MboxId`s.
+//! - `exec_command` / `ChildHandle` — fork+exec a process with three
+//!   stdio pumps. cgroup placement is a thin wrapper around this; the
+//!   wrapper is gated on root + a real cgroup mount at runtime.
 
 use std::sync::Arc;
 
 use classic_proto::{Frame, FrameHandler, NodeId};
 use tracing::{debug, info, warn};
+
+pub mod exec;
+pub mod mbox_alloc;
+
+pub use exec::{exec_command, ChildExitInfo, ChildHandle, ExecError, STDIO_CHANNEL_CAP};
+pub use mbox_alloc::MboxAllocator;
 
 /// FrameHandler the daemon installs at slot `0x03` of the FrameMux.
 /// Holds whatever state classic-spawn needs to route inbound frames; for
@@ -37,8 +46,6 @@ impl Default for SpawnHandler {
 
 impl FrameHandler for SpawnHandler {
     fn on_frame(&self, peer: NodeId, frame: Frame) {
-        // Discard usage holding the inner Arc — Task 6 replaces this with
-        // the real originator/executor dispatch table.
         let _ = &self.inner;
         dispatch_frame(peer, frame);
     }
@@ -89,7 +96,6 @@ mod tests {
     #[test]
     fn known_frame_kinds_dispatch_without_panic() {
         let h = SpawnHandler::new();
-        // SpawnAck is the smallest payload — easy to construct.
         let payload = encode_payload(&SpawnAck {
             req_id: 1,
             net_id: classic_proto::NetId {
@@ -109,7 +115,6 @@ mod tests {
     #[test]
     fn unknown_kind_in_spawn_range_logs_warn() {
         let h = SpawnHandler::new();
-        // 0x0399 is in the reserved part of the spawn range.
         h.on_frame(id(1), Frame::new(0x0399, Bytes::new()));
     }
 }
