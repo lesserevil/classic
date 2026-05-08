@@ -169,6 +169,7 @@ pub const PROTO_VERSION: u32 = 1;
 | 06 | `06-9p-namespace-server.md`       | fs                                   | 01, 05               |
 | 07 | `07-placement-groups.md`          | place, spawn                         | 03, 04               |
 | 08 | `08-multinode-demo.md`            | (integration only)                   | 01-07                |
+| 09 | `09-qemu-e2e.md`                  | (xtasks only)                        | 01, 04, 06, 08       |
 
 ### Future plans (not v1 — no epics/tasks filed)
 
