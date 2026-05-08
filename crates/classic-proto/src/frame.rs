@@ -6,17 +6,27 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 /// well-formed frame is `4 + MAX_FRAME_SIZE` bytes on the wire.
 pub const MAX_FRAME_SIZE: u32 = 16 * 1024 * 1024;
 
-/// Frame-kind discriminants for the proto range (`0x0000..=0x00FF`). `Frame`
-/// itself stores the kind as a raw `u16` so unknown kinds round-trip without
-/// loss; this enum just names the four known proto-range frames for
-/// convenience.
+/// Named frame-kind discriminants the workspace cares about. `Frame` itself
+/// stores the kind as a raw `u16` so unknown kinds round-trip without loss;
+/// this enum just names the kinds used by classic-proto and downstream
+/// crates so call sites can match on the variant rather than on a magic
+/// hex literal.
+///
+/// Range allocations come from ARCHITECTURE.md § "Frame-kind allocation":
+/// `0x0000..=0x00FF` proto, `0x0100..=0x01FF` ad, and so on. Each crate
+/// owns its range; values here are not exhaustive of the on-wire space.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[repr(u16)]
 pub enum FrameKind {
+    // proto range (0x0000..=0x00FF)
     Hello = 0x0001,
     Heartbeat = 0x0002,
     Bye = 0x0003,
     Error = 0x0004,
+    // ad range (0x0100..=0x01FF)
+    NodeAd = 0x0100,
+    AdGossip = 0x0101,
+    AdRequest = 0x0102,
 }
 
 impl From<FrameKind> for u16 {

@@ -21,17 +21,21 @@ publish = false
 
 [workspace.dependencies]
 async-trait = "0.1"
-bincode = "2.0"
+bincode = { version = "2.0", features = ["derive", "serde"] }
 bytes = "1.7"
 clap = "4.5"
 dashmap = "6.1"
 dirs = "5.0"
+futures = "0.3"
 getrandom = "0.2"
+nvml-wrapper = "0.10"
 rand = "0.8"
 serde = "1.0"
+serde_json = "1.0"
 tempfile = "3.10"
 thiserror = "2.0"
 tokio = "1.40"
+tokio-stream = "0.1"
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = "0.3"
