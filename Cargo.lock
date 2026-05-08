@@ -177,6 +177,11 @@ dependencies = [
 [[package]]
 name = "classic-cap"
 version = "0.1.0"
+dependencies = [
+ "classic-proto",
+ "thiserror 2.0.18",
+ "tracing",
+]
 
 [[package]]
 name = "classic-cli"
