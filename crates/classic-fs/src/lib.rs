@@ -9,6 +9,7 @@
 //! add the synthetic file-tree, server loop, namespace assembly + FUSE
 //! mount lifecycle, and remote bind-mount support.
 
+pub mod client;
 pub mod errno;
 pub mod namespace;
 pub mod proto;
@@ -23,4 +24,5 @@ pub use namespace::{
     BindRemote, FuseHandle, Mount, MountSource, Namespace, NamespaceError, RemoteFs, SpawnSpec,
 };
 pub use server::{EmptyTree, LocalServer, NodeId, StubTree, Tree, ROOT_NODE};
+pub use client::{RemoteClient, RemoteError, Transport, NOFID};
 pub use synthetic::{NodeView, SyntheticTree};
