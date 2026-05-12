@@ -292,10 +292,39 @@ pub fn gc_expired_tombstones() -> usize {
     removed
 }
 
+/// Snapshot every entry (live and tombstoned) for the on-connect
+/// `ServiceSync` response builder. Returns a cloned `Vec` so callers
+/// don't hold the directory lock while crossing crate boundaries.
+pub fn snapshot() -> Vec<SnapshotEntry> {
+    let entries = dir().entries.lock().expect("entries poisoned");
+    let mut out = Vec::new();
+    for (name, bucket) in entries.iter() {
+        for e in bucket {
+            out.push(SnapshotEntry {
+                name: name.clone(),
+                net_id: e.net_id,
+                lamport: e.lamport,
+                tombstone: e.tombstone,
+            });
+        }
+    }
+    out
+}
+
+/// One row from `snapshot()`. Distinct from the wire's `ServiceSyncEntry`
+/// so we can evolve the snapshot shape without breaking the wire.
+#[derive(Clone, Debug)]
+pub struct SnapshotEntry {
+    pub name: String,
+    pub net_id: NetId,
+    pub lamport: Lamport,
+    pub tombstone: bool,
+}
+
 /// Test-only: clear directory state. Call between tests that touch the
 /// process-singleton directory so they don't observe stale entries.
-#[cfg(test)]
-pub(crate) fn test_clear() {
+#[doc(hidden)]
+pub fn test_clear() {
     dir().entries.lock().unwrap().clear();
     dir().by_task.lock().unwrap().clear();
     dir().cursors.lock().unwrap().clear();

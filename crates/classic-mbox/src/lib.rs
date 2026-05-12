@@ -16,16 +16,24 @@
 pub mod directory;
 pub mod error;
 pub mod frames;
+pub mod gossip;
+pub mod gossip_emit;
 pub mod handler;
 pub mod mbox;
 pub mod send;
 
 pub use directory::{
     apply_local_declare, apply_local_forget, apply_remote_ad, apply_remote_forget,
-    bump_local_clock, gc_expired_tombstones, service_lookup, service_lookup_one, Lamport,
-    ServiceEntry, TaskId, MAX_SVC_NAME, TOMBSTONE_TTL,
+    bump_local_clock, gc_expired_tombstones, service_lookup, service_lookup_one, snapshot,
+    Lamport, ServiceEntry, SnapshotEntry, TaskId, MAX_SVC_NAME, TOMBSTONE_TTL,
 };
 pub use error::{MailError, ServiceError};
+pub use gossip::{
+    build_sync_response, clear_current_task, on_inbound_ad, on_inbound_forget,
+    on_inbound_sync_response, service_declare, service_forget, set_current_task,
+    ServiceHandle, GOSSIP_IN_APPLIED, GOSSIP_OUT,
+};
+pub use gossip_emit::{clear_sink as clear_gossip_sink, set_sink as set_gossip_sink};
 pub use frames::{
     decode_mbox_frame, encode_mail_delivery_failure, encode_mail_send, encode_service_ad,
     encode_service_forget, encode_service_sync, encode_service_sync_response,
