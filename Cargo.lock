@@ -207,7 +207,9 @@ dependencies = [
 name = "classic-mbox"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "classic-proto",
+ "serde",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

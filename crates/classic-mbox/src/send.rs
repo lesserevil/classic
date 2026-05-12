@@ -9,13 +9,14 @@
 //! silent (with a tracing::warn breadcrumb).
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock, RwLock};
 
 use tracing::warn;
 
-use classic_proto::{NetId, NodeId};
+use classic_proto::{Frame, NetId, NodeId};
 
 use crate::error::MailError;
+use crate::frames::{encode_mail_send, MailSend};
 use crate::mbox;
 
 /// Largest payload `mail_send` accepts. Larger payloads are caller-side
@@ -30,6 +31,35 @@ static SELF_NODE: OnceLock<NodeId> = OnceLock::new();
 /// tests and ops dashboards can spot mail loss without parsing logs.
 pub static LOCAL_FULL_DROPS: AtomicU64 = AtomicU64::new(0);
 pub static LOCAL_MISSING_DROPS: AtomicU64 = AtomicU64::new(0);
+/// Bumped when cross-node send has no live connection to the target.
+pub static REMOTE_NO_PEER_DROPS: AtomicU64 = AtomicU64::new(0);
+
+/// Trait the cross-node send path uses to deposit frames on a peer's
+/// outbound queue. classic-node's `PeerMesh` implements this in
+/// production via a thin adapter; tests use a channel-backed mock.
+pub trait Peers: Send + Sync + 'static {
+    /// Fire-and-forget. Implementations that can't deliver right now
+    /// (no live connection, queue full) should drop the frame and
+    /// return false; senders never block.
+    fn send_to(&self, peer: NodeId, frame: Frame) -> bool;
+}
+
+/// Optional peer backend installed by the daemon at startup. Until set,
+/// every cross-node send drops with REMOTE_NO_PEER_DROPS++.
+static PEERS: OnceLock<RwLock<Option<Arc<dyn Peers>>>> = OnceLock::new();
+
+fn peers_slot() -> &'static RwLock<Option<Arc<dyn Peers>>> {
+    PEERS.get_or_init(|| RwLock::new(None))
+}
+
+/// Install (or replace) the cross-node peer backend. Idempotent.
+pub fn set_peers(peers: Arc<dyn Peers>) {
+    *peers_slot().write().expect("PEERS poisoned") = Some(peers);
+}
+
+fn current_peers() -> Option<Arc<dyn Peers>> {
+    peers_slot().read().expect("PEERS poisoned").clone()
+}
 
 /// Initialize the registry with the daemon's NodeId so `mail_send` can
 /// distinguish local from remote `NetId`s. Idempotent — repeated calls
@@ -46,6 +76,12 @@ pub fn self_node_id() -> Option<NodeId> {
 }
 
 /// Fire-and-forget send to `to`. See module docs for semantics.
+///
+/// Local path delivers via the in-process registry. Remote path encodes
+/// a `MailSend` frame and hands it to the installed `Peers` backend; if
+/// the daemon hasn't installed one yet or the peer isn't connected,
+/// the frame is dropped with `REMOTE_NO_PEER_DROPS++`. Either case
+/// returns `Ok(())` — the contract is fire-and-forget.
 pub async fn mail_send(to: NetId, payload: Vec<u8>) -> Result<(), MailError> {
     if payload.len() > MAX_MAIL_BYTES {
         return Err(MailError::PayloadTooLarge(payload.len()));
@@ -53,12 +89,42 @@ pub async fn mail_send(to: NetId, payload: Vec<u8>) -> Result<(), MailError> {
     let self_id = SELF_NODE.get().ok_or(MailError::NotInitialized)?;
     if to.node == *self_id {
         deliver_local(to, payload);
-        Ok(())
-    } else {
-        // Cross-node dispatch lives in classic-zgg (Task 3). Until it
-        // lands we surface a clear "not wired" error so callers don't
-        // silently lose messages to peers.
-        Err(MailError::NotConnected)
+        return Ok(());
+    }
+    // Remote.
+    let frame = encode_mail_send(&MailSend {
+        from: NetId { node: *self_id, mbox: classic_proto::MboxId(0) },
+        to,
+        payload,
+    })
+    .map_err(|e| match e {
+        crate::frames::MboxFrameError::PayloadTooLarge(n) => MailError::PayloadTooLarge(n),
+        other => MailError::PayloadTooLarge(0).tap(|_| {
+            warn!(error = %other, "encode MailSend failed");
+        }),
+    })?;
+    match current_peers() {
+        Some(peers) => {
+            if !peers.send_to(to.node, frame) {
+                REMOTE_NO_PEER_DROPS.fetch_add(1, Ordering::Relaxed);
+                warn!(?to, "mail_send remote: send_to refused; dropped");
+            }
+        }
+        None => {
+            REMOTE_NO_PEER_DROPS.fetch_add(1, Ordering::Relaxed);
+            warn!(?to, "mail_send remote: no Peers backend installed; dropped");
+        }
+    }
+    Ok(())
+}
+
+trait Tap: Sized {
+    fn tap<F: FnOnce(&Self)>(self, f: F) -> Self;
+}
+impl<T> Tap for T {
+    fn tap<F: FnOnce(&Self)>(self, f: F) -> Self {
+        f(&self);
+        self
     }
 }
 
@@ -181,10 +247,67 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn remote_send_stubbed_with_not_connected() {
+    async fn remote_send_with_no_peers_backend_drops_silently() {
         init(local_node());
+        // Drop any existing peers backend.
+        *peers_slot().write().expect("peers poisoned") = None;
+        let before = REMOTE_NO_PEER_DROPS.load(Ordering::Relaxed);
         let to = NetId { node: remote_node(), mbox: MboxId(1) };
-        let err = mail_send(to, b"hi".to_vec()).await.unwrap_err();
-        assert!(matches!(err, MailError::NotConnected));
+        mail_send(to, b"hi".to_vec()).await.unwrap();
+        let after = REMOTE_NO_PEER_DROPS.load(Ordering::Relaxed);
+        assert!(after >= before + 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn remote_send_writes_frame_to_peers_backend() {
+        use std::sync::Mutex;
+        struct CapturePeers {
+            sent: Mutex<Vec<(NodeId, Frame)>>,
+        }
+        impl Peers for CapturePeers {
+            fn send_to(&self, peer: NodeId, frame: Frame) -> bool {
+                self.sent.lock().unwrap().push((peer, frame));
+                true
+            }
+        }
+        let cap = Arc::new(CapturePeers { sent: Mutex::new(Vec::new()) });
+        set_peers(cap.clone());
+        init(local_node());
+
+        let to = NetId { node: remote_node(), mbox: MboxId(42) };
+        mail_send(to, b"crossnode".to_vec()).await.unwrap();
+
+        let sent = cap.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        let (peer, frame) = &sent[0];
+        assert_eq!(*peer, remote_node());
+        assert_eq!(frame.kind, crate::frames::FRAME_MAIL_SEND);
+        // Decode the encoded MailSend and validate fields.
+        let decoded = crate::frames::decode_mbox_frame(frame).unwrap();
+        match decoded {
+            crate::frames::MboxInbound::MailSend(m) => {
+                assert_eq!(m.to, to);
+                assert_eq!(m.payload, b"crossnode");
+                assert_eq!(m.from.node, local_node());
+            }
+            other => panic!("expected MailSend, got {other:?}"),
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn remote_send_when_backend_refuses_drops() {
+        struct RefusePeers;
+        impl Peers for RefusePeers {
+            fn send_to(&self, _peer: NodeId, _frame: Frame) -> bool {
+                false
+            }
+        }
+        set_peers(Arc::new(RefusePeers));
+        init(local_node());
+        let before = REMOTE_NO_PEER_DROPS.load(Ordering::Relaxed);
+        let to = NetId { node: remote_node(), mbox: MboxId(1) };
+        mail_send(to, b"hi".to_vec()).await.unwrap();
+        let after = REMOTE_NO_PEER_DROPS.load(Ordering::Relaxed);
+        assert!(after >= before + 1);
     }
 }
