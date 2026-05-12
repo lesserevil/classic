@@ -5,6 +5,9 @@ use clap::{Parser, Subcommand};
 
 use classic_node::control::{self, Request};
 
+use classic_cli::submit;
+use classic_cli::submit::SubmitArgs;
+
 #[derive(Parser, Debug)]
 #[command(name = "classic", version, about = "Classic SSI cluster CLI")]
 struct Args {
@@ -25,6 +28,8 @@ enum Command {
     },
     /// Spawn a process on a cluster node matching the given predicate.
     Spawn(SpawnArgs),
+    /// Submit a placement group described in a TOML file.
+    Submit(SubmitArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -120,6 +125,9 @@ async fn run(args: Args) -> Result<(), CliErr> {
             AdCommand::Show { hostname, json } => ad_show(&args.state_dir, &hostname, json).await,
         },
         Command::Spawn(s) => spawn(&args.state_dir, s).await,
+        Command::Submit(s) => submit::run_submit(&args.state_dir, s)
+            .await
+            .map_err(|e| CliErr::Other(e.to_string())),
     }
 }
 

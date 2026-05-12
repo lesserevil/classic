@@ -41,8 +41,13 @@ pub struct ReservedMemberSlot {
     pub member: ReservedMember,
 }
 
-/// Lifecycle states for a single group reservation.
+/// Lifecycle states for a single group reservation. `Released` is
+/// transient — `tick_ttl` and `abort` set the state and then
+/// immediately remove the entry — but it's the natural sentinel for
+/// the "this used to exist" case, so it's preserved for readability
+/// even though no live entry observes it.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
 enum State {
     Held,
     Committing,
