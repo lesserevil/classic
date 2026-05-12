@@ -11,6 +11,7 @@
 
 pub mod client;
 pub mod errno;
+pub use errno::*;
 pub mod namespace;
 pub mod proto;
 pub mod server;
