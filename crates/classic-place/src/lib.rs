@@ -2,6 +2,8 @@ pub mod ast;
 pub mod error;
 pub mod eval;
 pub mod frame;
+pub mod free_pool;
+pub mod group;
 pub mod lex;
 pub mod model;
 pub mod parse;
@@ -12,6 +14,10 @@ pub use error::{ParseError, ParseErrorKind};
 pub use eval::{matches, score};
 pub use frame::{
     PlaceErrKind, PlacedCandidate, PlacementError, PlacementRequest, PlacementResponse,
+};
+pub use free_pool::FreePool;
+pub use group::{
+    place_group, GroupMember, GroupPlaceError, GroupStrategy, PlacementGroup,
 };
 pub use lex::{lex, Pos, TokKind, Token, MAX_SRC_LEN};
 pub use model::{CpuAd, GpuAd, LoadAd, MemAd, NodeAd, OsAd, PciAd};

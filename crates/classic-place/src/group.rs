@@ -1,0 +1,165 @@
+//! Placement-group types and top-level `place_group` dispatcher.
+//!
+//! Two strategies:
+//! - `Pack`  — assign all members to a single node (gang scheduling).
+//! - `Spread` — assign at most one member per node (anti-affinity).
+//!
+//! This module owns the user-facing types and validation. Algorithm
+//! bodies for PACK/SPREAD land in follow-up tasks; the stubs here
+//! return the appropriate `Infeasible` variant so the dispatcher's
+//! error wiring is exercised by tests from day one.
+//!
+//! See `plans/07-placement-groups.md` for the full design.
+
+use std::collections::HashSet;
+
+use classic_proto::NodeId;
+
+use crate::ast::Requirement;
+use crate::model::NodeAd;
+
+/// One placeable unit in a group. `label` is unique within the group
+/// (validated) and is the key in the returned placement map. `req` is
+/// a plan-03 predicate evaluated per node. `argv`/`env` ride along so
+/// downstream spawn submission can use the same struct.
+#[derive(Clone, Debug)]
+pub struct GroupMember {
+    pub label: String,
+    pub req: Requirement,
+    pub argv: Vec<String>,
+    pub env: Vec<(String, String)>,
+}
+
+/// Group placement strategy. PACK collapses to a single node; SPREAD
+/// fans out one-per-node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GroupStrategy {
+    Pack,
+    Spread,
+}
+
+/// A submitted group: strategy + ordered member list. Member order is
+/// preserved through to the placement result.
+#[derive(Clone, Debug)]
+pub struct PlacementGroup {
+    pub strategy: GroupStrategy,
+    pub members: Vec<GroupMember>,
+}
+
+/// Failure modes for `place_group`. Each variant's message is
+/// user-facing — `classic submit` renders them directly.
+#[derive(thiserror::Error, Debug, PartialEq, Eq)]
+pub enum GroupPlaceError {
+    #[error("empty placement group")]
+    Empty,
+    #[error("duplicate member label: {0}")]
+    DuplicateLabel(String),
+    #[error("PACK: no single node satisfies all {0} member requirements")]
+    PackInfeasible(usize),
+    #[error("SPREAD: cluster has {nodes} nodes, group needs {needed}")]
+    SpreadTooLarge { needed: usize, nodes: usize },
+    #[error("SPREAD: no one-member-per-node assignment satisfies all requirements")]
+    SpreadInfeasible,
+    #[error("member {label}: no node matches requirement")]
+    MemberInfeasible { label: String },
+}
+
+/// Top-level group placer. Validates the group shape, then dispatches
+/// to the strategy-specific algorithm. On success returns an ordered
+/// `(label, node_id)` list — same order as `group.members` so callers
+/// can zip back to argv/env.
+pub fn place_group(
+    group: &PlacementGroup,
+    ads: &[NodeAd],
+) -> Result<Vec<(String, NodeId)>, GroupPlaceError> {
+    if group.members.is_empty() {
+        return Err(GroupPlaceError::Empty);
+    }
+    let mut seen: HashSet<&str> = HashSet::with_capacity(group.members.len());
+    for m in &group.members {
+        if !seen.insert(m.label.as_str()) {
+            return Err(GroupPlaceError::DuplicateLabel(m.label.clone()));
+        }
+    }
+    match group.strategy {
+        GroupStrategy::Pack => place_pack(group, ads),
+        GroupStrategy::Spread => place_spread(group, ads),
+    }
+}
+
+/// PACK stub — full algorithm lands in the next task. Returns
+/// `PackInfeasible(members.len())` so the dispatcher's error path is
+/// already exercised end-to-end.
+fn place_pack(
+    group: &PlacementGroup,
+    _ads: &[NodeAd],
+) -> Result<Vec<(String, NodeId)>, GroupPlaceError> {
+    Err(GroupPlaceError::PackInfeasible(group.members.len()))
+}
+
+/// SPREAD stub — full algorithm lands in the next task. Returns
+/// `SpreadInfeasible` unconditionally.
+fn place_spread(
+    _group: &PlacementGroup,
+    _ads: &[NodeAd],
+) -> Result<Vec<(String, NodeId)>, GroupPlaceError> {
+    Err(GroupPlaceError::SpreadInfeasible)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parse_req;
+
+    fn member(label: &str, req_src: &str) -> GroupMember {
+        GroupMember {
+            label: label.into(),
+            req: parse_req(req_src).expect("test predicate must parse"),
+            argv: vec![],
+            env: vec![],
+        }
+    }
+
+    #[test]
+    fn empty_group_rejected_before_strategy() {
+        let g = PlacementGroup {
+            strategy: GroupStrategy::Pack,
+            members: vec![],
+        };
+        assert_eq!(place_group(&g, &[]).unwrap_err(), GroupPlaceError::Empty);
+    }
+
+    #[test]
+    fn duplicate_label_rejected() {
+        let g = PlacementGroup {
+            strategy: GroupStrategy::Spread,
+            members: vec![member("trainer", "true"), member("trainer", "true")],
+        };
+        let err = place_group(&g, &[]).unwrap_err();
+        assert_eq!(err, GroupPlaceError::DuplicateLabel("trainer".into()));
+    }
+
+    #[test]
+    fn pack_stub_returns_pack_infeasible() {
+        let g = PlacementGroup {
+            strategy: GroupStrategy::Pack,
+            members: vec![member("a", "true"), member("b", "true")],
+        };
+        assert_eq!(
+            place_group(&g, &[]).unwrap_err(),
+            GroupPlaceError::PackInfeasible(2),
+        );
+    }
+
+    #[test]
+    fn spread_stub_returns_spread_infeasible() {
+        let g = PlacementGroup {
+            strategy: GroupStrategy::Spread,
+            members: vec![member("a", "true")],
+        };
+        assert_eq!(
+            place_group(&g, &[]).unwrap_err(),
+            GroupPlaceError::SpreadInfeasible,
+        );
+    }
+}
