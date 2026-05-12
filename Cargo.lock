@@ -200,7 +200,13 @@ dependencies = [
 name = "classic-fs"
 version = "0.1.0"
 dependencies = [
+ "bytes",
+ "classic-ad",
+ "classic-cap",
  "classic-mbox",
+ "classic-proto",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
