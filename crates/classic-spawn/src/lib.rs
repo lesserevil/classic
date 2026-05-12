@@ -16,17 +16,27 @@ use std::sync::Arc;
 use classic_proto::{Frame, FrameHandler, NodeId};
 use tracing::{debug, info, warn};
 
+pub mod coord;
 pub mod deny;
 pub mod error;
 pub mod exec;
 pub mod executor;
+pub mod group_proto;
 pub mod mbox_alloc;
 pub mod originator;
 
+pub use coord::{
+    submit_group, CommitResponse, GroupCfg, GroupSpawnError, GroupSubmitResult, GroupTransport,
+    ReserveResponse, RESERVE_TTL_SLACK,
+};
 pub use deny::{format_candidate_denials, render_deny, terminal_reason, CandidateDenial};
 pub use error::SpawnError;
 pub use exec::{exec_command, ChildExitInfo, ChildHandle, ChildParts, ExecError, STDIO_CHANNEL_CAP};
 pub use executor::{run_executor, LocalAdMatcher, NoOpScopeProvider, ScopeProvider};
+pub use group_proto::{
+    GroupAbort, GroupAbortAck, GroupCommit, GroupCommitFailed, GroupId, GroupReserveAck,
+    GroupReserveDeny, GroupReserveFrame, GroupSpawned, ReservedMember,
+};
 pub use mbox_alloc::MboxAllocator;
 pub use originator::{run_originator, AttemptOutcome, OriginatorState, PeerSpawn, Placer};
 

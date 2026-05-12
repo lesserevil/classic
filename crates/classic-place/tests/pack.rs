@@ -15,6 +15,7 @@ fn member(label: &str, req_src: &str) -> GroupMember {
     GroupMember {
         label: label.into(),
         req: parse_req(req_src).expect("test predicate must parse"),
+        requires_src: req_src.into(),
         argv: vec![],
         env: vec![],
     }

@@ -11,10 +11,15 @@ classic-cap = { path = "../classic-cap" }
 classic-mbox = { path = "../classic-mbox" }
 classic-place = { path = "../classic-place" }
 classic-proto = { path = "../classic-proto" }
+async-trait = { workspace = true }
+futures = { workspace = true }
+getrandom = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
+async-trait = { workspace = true }
 bytes = { workspace = true }
-tokio = { workspace = true, features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "test-util", "time"] }

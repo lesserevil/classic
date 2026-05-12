@@ -40,6 +40,15 @@ pub enum FrameKind {
     SpawnDeny = 0x0302,
     ChildStdio = 0x0303,
     ChildExit = 0x0304,
+    // group 2PC sub-range (0x0320..=0x0327)
+    GroupReserve = 0x0320,
+    GroupReserveAck = 0x0321,
+    GroupReserveDeny = 0x0322,
+    GroupCommit = 0x0323,
+    GroupSpawned = 0x0324,
+    GroupCommitFailed = 0x0325,
+    GroupAbort = 0x0326,
+    GroupAbortAck = 0x0327,
     // fs (9P) range (0x0400..=0x04FF) — owned by classic-fs
     NineReq = 0x0400,
     NineRsp = 0x0401,
@@ -230,5 +239,17 @@ mod tests {
         assert_eq!(FrameKind::Heartbeat as u16, 0x0002);
         assert_eq!(FrameKind::Bye as u16, 0x0003);
         assert_eq!(FrameKind::Error as u16, 0x0004);
+    }
+
+    #[test]
+    fn group_frame_kinds_match_plan_07() {
+        assert_eq!(FrameKind::GroupReserve as u16, 0x0320);
+        assert_eq!(FrameKind::GroupReserveAck as u16, 0x0321);
+        assert_eq!(FrameKind::GroupReserveDeny as u16, 0x0322);
+        assert_eq!(FrameKind::GroupCommit as u16, 0x0323);
+        assert_eq!(FrameKind::GroupSpawned as u16, 0x0324);
+        assert_eq!(FrameKind::GroupCommitFailed as u16, 0x0325);
+        assert_eq!(FrameKind::GroupAbort as u16, 0x0326);
+        assert_eq!(FrameKind::GroupAbortAck as u16, 0x0327);
     }
 }

@@ -22,12 +22,16 @@ use crate::model::NodeAd;
 
 /// One placeable unit in a group. `label` is unique within the group
 /// (validated) and is the key in the returned placement map. `req` is
-/// a plan-03 predicate evaluated per node. `argv`/`env` ride along so
-/// downstream spawn submission can use the same struct.
+/// the parsed plan-03 predicate evaluated per node; `requires_src` is
+/// the original source string preserved verbatim so downstream wire
+/// frames (plan-07 group-2PC, plan-04 single-spawn forwarding) can
+/// re-send the predicate without losing precision. `argv`/`env` ride
+/// along so downstream spawn submission can use the same struct.
 #[derive(Clone, Debug)]
 pub struct GroupMember {
     pub label: String,
     pub req: Requirement,
+    pub requires_src: String,
     pub argv: Vec<String>,
     pub env: Vec<(String, String)>,
 }
@@ -234,6 +238,7 @@ mod tests {
         GroupMember {
             label: label.into(),
             req: parse_req(req_src).expect("test predicate must parse"),
+            requires_src: req_src.into(),
             argv: vec![],
             env: vec![],
         }
