@@ -208,6 +208,9 @@ name = "classic-mbox"
 version = "0.1.0"
 dependencies = [
  "classic-proto",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

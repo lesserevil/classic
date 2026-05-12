@@ -8,3 +8,9 @@ publish.workspace = true
 
 [dependencies]
 classic-proto = { path = "../classic-proto" }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "test-util", "time"] }
