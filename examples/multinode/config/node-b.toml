@@ -1,0 +1,18 @@
+node_name = "node-b"
+listen    = "10.42.0.11:7421"
+state_dir = "/var/lib/classicd"
+
+[hardware]
+gpu      = true
+discover = ["pci", "cpu", "mem", "nvml"]
+
+[[peer]]
+addr = "10.42.0.10:7421"
+hint = "node-a"
+
+[[peer]]
+addr = "10.42.0.12:7421"
+hint = "node-c"
+
+[log]
+level = "info"
