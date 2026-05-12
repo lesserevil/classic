@@ -75,6 +75,29 @@ impl ChildHandle {
             ))),
         }
     }
+
+    /// Destructure the handle so a caller can pump stdout / stderr
+    /// concurrently with the exit-status future. classic-node's
+    /// spawn-socket bridge uses this so a `tokio::spawn`'d pump task
+    /// doesn't have to wait sequentially for one channel before
+    /// reading the other.
+    pub fn into_parts(self) -> ChildParts {
+        ChildParts {
+            req_id: self.req_id,
+            stdout: self.stdout,
+            stderr: self.stderr,
+            stdin: self.stdin,
+            wait: self.wait,
+        }
+    }
+}
+
+pub struct ChildParts {
+    pub req_id: u64,
+    pub stdout: mpsc::Receiver<Vec<u8>>,
+    pub stderr: mpsc::Receiver<Vec<u8>>,
+    pub stdin: mpsc::Sender<Vec<u8>>,
+    pub wait: tokio::task::JoinHandle<Result<ChildExitInfo, ExecError>>,
 }
 
 /// Launch a command with three pumps (stdout, stderr, stdin) and return
