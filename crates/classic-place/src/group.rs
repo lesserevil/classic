@@ -16,6 +16,7 @@ use std::collections::HashSet;
 use classic_proto::NodeId;
 
 use crate::ast::Requirement;
+use crate::eval::matches as predicate_matches;
 use crate::free_pool::{place_one_in_pool, FreePool, Picked};
 use crate::model::NodeAd;
 
@@ -143,13 +144,85 @@ fn rank_pack_desc(a: &&NodeAd, b: &&NodeAd) -> std::cmp::Ordering {
     b_free.cmp(&a_free).then_with(|| a.node_id.0.cmp(&b.node_id.0))
 }
 
-/// SPREAD stub — full algorithm lands in the next task. Returns
-/// `SpreadInfeasible` unconditionally.
+/// SPREAD — assign every member to a distinct node.
+///
+/// 1. Cheap cardinality check: more members than nodes -> `SpreadTooLarge`.
+/// 2. For each member, build the list of candidate `NodeId`s whose
+///    ad satisfies that member's requirement. Members carry their
+///    original index so we can restore caller declaration order at
+///    the end.
+/// 3. Sort the per-member list by candidate-count ascending — the
+///    minimum-remaining-values heuristic from CSP solvers. Branches
+///    on the most-constrained member fail fastest, pruning the
+///    search tree.
+/// 4. Recursive backtracking; first complete assignment wins.
+/// 5. Reorder the assignment back to caller's member order before
+///    returning. On any backtracking failure: `SpreadInfeasible`.
 fn place_spread(
-    _group: &PlacementGroup,
-    _ads: &[NodeAd],
+    group: &PlacementGroup,
+    ads: &[NodeAd],
 ) -> Result<Vec<(String, NodeId)>, GroupPlaceError> {
-    Err(GroupPlaceError::SpreadInfeasible)
+    let needed = group.members.len();
+    let nodes = ads.len();
+    if needed > nodes {
+        return Err(GroupPlaceError::SpreadTooLarge { needed, nodes });
+    }
+    // Build (original_index, candidate_node_ids) for each member.
+    let mut per_member: Vec<(usize, Vec<NodeId>)> = group
+        .members
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (i, candidates(&m.req, ads)))
+        .collect();
+    // MRV: try the most-constrained members first.
+    per_member.sort_by_key(|(_, c)| c.len());
+    // Each backtracking frame stashes (original_index, picked_node_id).
+    let mut used: HashSet<NodeId> = HashSet::new();
+    let mut assignment: Vec<(usize, NodeId)> = Vec::with_capacity(needed);
+    if !backtrack(&per_member, 0, &mut used, &mut assignment) {
+        return Err(GroupPlaceError::SpreadInfeasible);
+    }
+    // Restore caller declaration order.
+    assignment.sort_by_key(|(orig_idx, _)| *orig_idx);
+    Ok(assignment
+        .into_iter()
+        .map(|(orig_idx, node)| (group.members[orig_idx].label.clone(), node))
+        .collect())
+}
+
+/// Build the list of `NodeId`s in `ads` that satisfy `req`. Preserves
+/// the input order so backtracking exploration is deterministic.
+fn candidates(req: &Requirement, ads: &[NodeAd]) -> Vec<NodeId> {
+    ads.iter()
+        .filter(|ad| predicate_matches(req, ad))
+        .map(|ad| ad.node_id)
+        .collect()
+}
+
+/// Recursive bipartite-matching backtrack.
+fn backtrack(
+    per_member: &[(usize, Vec<NodeId>)],
+    i: usize,
+    used: &mut HashSet<NodeId>,
+    assignment: &mut Vec<(usize, NodeId)>,
+) -> bool {
+    if i == per_member.len() {
+        return true;
+    }
+    let (orig_idx, cands) = &per_member[i];
+    for node in cands {
+        if used.contains(node) {
+            continue;
+        }
+        used.insert(*node);
+        assignment.push((*orig_idx, *node));
+        if backtrack(per_member, i + 1, used, assignment) {
+            return true;
+        }
+        assignment.pop();
+        used.remove(node);
+    }
+    false
 }
 
 #[cfg(test)]
@@ -198,14 +271,15 @@ mod tests {
     }
 
     #[test]
-    fn spread_stub_returns_spread_infeasible() {
+    fn spread_with_no_ads_is_too_large_not_infeasible() {
+        // 1 member, 0 nodes: cardinality check fires first.
         let g = PlacementGroup {
             strategy: GroupStrategy::Spread,
             members: vec![member("a", "true")],
         };
         assert_eq!(
             place_group(&g, &[]).unwrap_err(),
-            GroupPlaceError::SpreadInfeasible,
+            GroupPlaceError::SpreadTooLarge { needed: 1, nodes: 0 },
         );
     }
 }
