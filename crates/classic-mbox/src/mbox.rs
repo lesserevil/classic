@@ -77,6 +77,14 @@ pub fn lookup(mbox: MboxId) -> Option<mpsc::Sender<Vec<u8>>> {
     registry().sender(mbox)
 }
 
+/// Force-evict `mbox` from the registry without consulting the
+/// `MailboxRecv`'s Drop. Used by `on_task_exit` for authoritative
+/// teardown — any still-live MailboxRecv whose owning task has exited
+/// can no longer be the target of `try_deliver_local`.
+pub fn evict_for_gc(mbox: MboxId) {
+    registry().evict(mbox);
+}
+
 /// Fire-and-forget local delivery. Full or missing mailboxes drop
 /// silently with a debug log. There is no end-to-end ack — `mail_send`'s
 /// contract is best-effort.

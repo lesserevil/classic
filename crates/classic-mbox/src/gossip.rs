@@ -64,13 +64,31 @@ fn current_task() -> Option<TaskContext> {
     CURRENT_TASK.with(|cell| *cell.borrow())
 }
 
-/// Test-only registry of declared services: name -> (task_id, net_id, last_lamport).
-/// Used by Drop and by service_forget. Real implementation would key on
-/// the actual ServiceHandle id.
+/// Per-process registry of declared services: (name, task_id, net_id,
+/// last_lamport). Used by Drop, service_forget, and the GC path.
 static DECLARED: OnceLock<Mutex<Vec<(String, TaskId, NetId, u64)>>> = OnceLock::new();
 
 fn declared() -> &'static Mutex<Vec<(String, TaskId, NetId, u64)>> {
     DECLARED.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Drain every declaration owned by `task_id`. Used by `on_task_exit`
+/// to synthesize ServiceForget broadcasts on the way down. Returns the
+/// `(name, net_id, last_lamport)` tuples that were tracked.
+pub(crate) fn drain_declared_for_task(
+    task_id: TaskId,
+) -> Vec<(String, NetId, u64)> {
+    let mut decls = declared().lock().expect("declared poisoned");
+    let mut out = Vec::new();
+    decls.retain(|(name, t, net_id, lamport)| {
+        if *t == task_id {
+            out.push((name.clone(), *net_id, *lamport));
+            false // remove
+        } else {
+            true
+        }
+    });
+    out
 }
 
 /// Declare `name` as a service backed by the current task's primary

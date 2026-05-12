@@ -16,6 +16,7 @@
 pub mod directory;
 pub mod error;
 pub mod frames;
+pub mod gc;
 pub mod gossip;
 pub mod gossip_emit;
 pub mod handler;
@@ -28,6 +29,7 @@ pub use directory::{
     Lamport, ServiceEntry, SnapshotEntry, TaskId, MAX_SVC_NAME, TOMBSTONE_TTL,
 };
 pub use error::{MailError, ServiceError};
+pub use gc::{on_task_exit, on_task_start};
 pub use gossip::{
     build_sync_response, clear_current_task, on_inbound_ad, on_inbound_forget,
     on_inbound_sync_response, service_declare, service_forget, set_current_task,
