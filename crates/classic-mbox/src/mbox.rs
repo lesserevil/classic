@@ -181,6 +181,12 @@ pub async fn select_mboxes(
     Sel { mboxes }.await
 }
 
+/// Test-only: serialize tests that touch the process-singleton state.
+/// `cargo test` runs targets in parallel; without this serialization
+/// the global counters race in confusing ways.
+#[cfg(test)]
+pub(crate) static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,6 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn alloc_is_monotonic_and_nonzero() {
+        let _g = TEST_MUTEX.lock().unwrap();
         let (a, _ra) = Mailbox::new();
         let (b, _rb) = Mailbox::new();
         let (c, _rc) = Mailbox::new();
@@ -198,6 +205,7 @@ mod tests {
 
     #[tokio::test]
     async fn drop_evicts_registry_entry() {
+        let _g = TEST_MUTEX.lock().unwrap();
         let count_before = registry().live_count();
         let (id, recv) = Mailbox::new();
         assert_eq!(registry().live_count(), count_before + 1);
@@ -209,6 +217,7 @@ mod tests {
 
     #[tokio::test]
     async fn local_delivery_round_trips() {
+        let _g = TEST_MUTEX.lock().unwrap();
         let (id, mut rx) = Mailbox::new();
         try_deliver_local(id, b"hello".to_vec());
         let msg = tokio::time::timeout(Duration::from_millis(100), rx.recv())
@@ -219,6 +228,7 @@ mod tests {
 
     #[tokio::test]
     async fn try_recv_returns_message_then_none() {
+        let _g = TEST_MUTEX.lock().unwrap();
         let (id, mut rx) = Mailbox::new();
         try_deliver_local(id, b"x".to_vec());
         // Give the dispatch a tick to land — try_send is synchronous
@@ -231,6 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn full_channel_drops_silently_no_panic() {
+        let _g = TEST_MUTEX.lock().unwrap();
         let (id, _rx) = Mailbox::new();
         // Send well past capacity. The bounded channel rejects overflow;
         // try_deliver_local swallows the Err.
@@ -241,6 +252,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_mailbox_drop_is_silent() {
+        let _g = TEST_MUTEX.lock().unwrap();
         let (id, recv) = Mailbox::new();
         drop(recv);
         try_deliver_local(id, b"into-the-void".to_vec()); // must not panic
@@ -248,6 +260,7 @@ mod tests {
 
     #[tokio::test]
     async fn select_returns_first_ready_index_with_message() {
+        let _g = TEST_MUTEX.lock().unwrap();
         let (a, mut ra) = Mailbox::new();
         let (_b, mut rb) = Mailbox::new();
         let (_c, mut rc) = Mailbox::new();
@@ -261,6 +274,7 @@ mod tests {
 
     #[tokio::test]
     async fn select_picks_only_ready_mailbox_among_three() {
+        let _g = TEST_MUTEX.lock().unwrap();
         let (_a, mut ra) = Mailbox::new();
         let (_b, mut rb) = Mailbox::new();
         let (c, mut rc) = Mailbox::new();
@@ -274,6 +288,7 @@ mod tests {
 
     #[tokio::test]
     async fn select_empty_slice_returns_none() {
+        let _g = TEST_MUTEX.lock().unwrap();
         let result = select_mboxes(&mut []).await;
         assert!(result.is_none());
     }

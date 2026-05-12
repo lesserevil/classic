@@ -13,13 +13,19 @@
 //! `MBOX_CAPACITY = 1024` per the plan; fire-and-forget — full
 //! mailboxes drop silently. `MboxId(0)` is reserved per ARCHITECTURE.md.
 
+pub mod directory;
 pub mod error;
 pub mod frames;
 pub mod handler;
 pub mod mbox;
 pub mod send;
 
-pub use error::MailError;
+pub use directory::{
+    apply_local_declare, apply_local_forget, apply_remote_ad, apply_remote_forget,
+    bump_local_clock, gc_expired_tombstones, service_lookup, service_lookup_one, Lamport,
+    ServiceEntry, TaskId, MAX_SVC_NAME, TOMBSTONE_TTL,
+};
+pub use error::{MailError, ServiceError};
 pub use frames::{
     decode_mbox_frame, encode_mail_delivery_failure, encode_mail_send, encode_service_ad,
     encode_service_forget, encode_service_sync, encode_service_sync_response,

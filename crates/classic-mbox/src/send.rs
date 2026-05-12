@@ -163,6 +163,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn errors_when_not_initialized() {
+        let _g = crate::mbox::TEST_MUTEX.lock().unwrap();
         // Don't init for this test. Use a unique NodeId so we don't
         // collide with parallel tests that DID init.
         //
@@ -185,6 +186,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn payload_too_large_rejected_even_pre_init() {
+        let _g = crate::mbox::TEST_MUTEX.lock().unwrap();
         // Size check fires before the SELF_NODE check.
         let huge = vec![0u8; MAX_MAIL_BYTES + 1];
         let err = mail_send(NetId { node: local_node(), mbox: MboxId(1) }, huge)
@@ -195,6 +197,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn local_delivery_round_trips() {
+        let _g = crate::mbox::TEST_MUTEX.lock().unwrap();
         init(local_node());
         let (id, mut rx) = Mailbox::new();
         mail_send(
@@ -209,6 +212,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn missing_local_mbox_is_ok_increments_counter() {
+        let _g = crate::mbox::TEST_MUTEX.lock().unwrap();
         init(local_node());
         let before = snapshot_counters().1;
         // mbox id far above any allocator output.
@@ -220,6 +224,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn channel_full_increments_drop_counter() {
+        let _g = crate::mbox::TEST_MUTEX.lock().unwrap();
         init(local_node());
         let (id, _rx) = Mailbox::new();
         // Saturate the bounded channel without recv()'ing.
@@ -248,6 +253,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn remote_send_with_no_peers_backend_drops_silently() {
+        let _g = crate::mbox::TEST_MUTEX.lock().unwrap();
         init(local_node());
         // Drop any existing peers backend.
         *peers_slot().write().expect("peers poisoned") = None;
@@ -260,6 +266,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn remote_send_writes_frame_to_peers_backend() {
+        let _g = crate::mbox::TEST_MUTEX.lock().unwrap();
         use std::sync::Mutex;
         struct CapturePeers {
             sent: Mutex<Vec<(NodeId, Frame)>>,
@@ -296,6 +303,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn remote_send_when_backend_refuses_drops() {
+        let _g = crate::mbox::TEST_MUTEX.lock().unwrap();
         struct RefusePeers;
         impl Peers for RefusePeers {
             fn send_to(&self, _peer: NodeId, _frame: Frame) -> bool {

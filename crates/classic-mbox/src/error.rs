@@ -3,6 +3,13 @@
 use classic_proto::NodeId;
 
 #[derive(Debug, thiserror::Error)]
+pub enum ServiceError {
+    /// Name exceeded `MAX_SVC_NAME` (256 B UTF-8).
+    #[error("service name too long: {0} bytes (cap is 256)")]
+    NameTooLong(usize),
+}
+
+#[derive(Debug, thiserror::Error)]
 pub enum MailError {
     /// Wire payload exceeds `MAX_MAIL_BYTES` (8 MiB per plan-05).
     #[error("payload too large: {0} bytes (cap is 8 MiB)")]
