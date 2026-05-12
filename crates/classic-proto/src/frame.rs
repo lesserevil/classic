@@ -27,6 +27,13 @@ pub enum FrameKind {
     NodeAd = 0x0100,
     AdGossip = 0x0101,
     AdRequest = 0x0102,
+    // mbox range (0x0200..=0x02FF) — owned by classic-mbox
+    MailSend = 0x0200,
+    MailDeliveryFailure = 0x0201,
+    ServiceAd = 0x0210,
+    ServiceForget = 0x0211,
+    ServiceSync = 0x0212,
+    ServiceSyncResponse = 0x0213,
     // spawn range (0x0300..=0x03FF) — owned by classic-spawn
     SpawnRequest = 0x0300,
     SpawnAck = 0x0301,
