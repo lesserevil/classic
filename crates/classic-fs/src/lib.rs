@@ -10,6 +10,7 @@
 //! mount lifecycle, and remote bind-mount support.
 
 pub mod errno;
+pub mod namespace;
 pub mod proto;
 pub mod server;
 pub mod synthetic;
@@ -17,6 +18,9 @@ pub mod synthetic;
 pub use proto::{
     decode_r, decode_t, encode_r, encode_t, rlerror, tcode, DirEntry, Fid, NineError, Qid,
     RMessage, Stat, Tag, TMessage, MAX_MSIZE,
+};
+pub use namespace::{
+    BindRemote, FuseHandle, Mount, MountSource, Namespace, NamespaceError, RemoteFs, SpawnSpec,
 };
 pub use server::{EmptyTree, LocalServer, NodeId, StubTree, Tree, ROOT_NODE};
 pub use synthetic::{NodeView, SyntheticTree};

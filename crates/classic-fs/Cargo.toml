@@ -14,3 +14,6 @@ classic-proto = { path = "../classic-proto" }
 bytes = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
