@@ -24,10 +24,15 @@ pub mod executor;
 pub mod group_proto;
 pub mod mbox_alloc;
 pub mod originator;
+pub mod reservation;
 
 pub use coord::{
     submit_group, CommitResponse, GroupCfg, GroupSpawnError, GroupSubmitResult, GroupTransport,
     ReserveResponse, RESERVE_TTL_SLACK,
+};
+pub use reservation::{
+    spawn_ttl_sweeper, AbortOutcome, CommitOutcome, ReserveOutcome, ReservationTable,
+    ReservedMemberSlot, TTL_SWEEP_PERIOD,
 };
 pub use deny::{format_candidate_denials, render_deny, terminal_reason, CandidateDenial};
 pub use error::SpawnError;
