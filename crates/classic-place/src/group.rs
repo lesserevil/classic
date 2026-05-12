@@ -16,6 +16,7 @@ use std::collections::HashSet;
 use classic_proto::NodeId;
 
 use crate::ast::Requirement;
+use crate::free_pool::{place_one_in_pool, FreePool, Picked};
 use crate::model::NodeAd;
 
 /// One placeable unit in a group. `label` is unique within the group
@@ -87,14 +88,59 @@ pub fn place_group(
     }
 }
 
-/// PACK stub — full algorithm lands in the next task. Returns
-/// `PackInfeasible(members.len())` so the dispatcher's error path is
-/// already exercised end-to-end.
+/// PACK — assign every member to the same single node.
+///
+/// 1. Sort candidate nodes by total free GPU memory descending; tie
+///    by `node_id` bytes ascending. This biases PACK toward
+///    GPU-richest hosts and is deterministic.
+/// 2. For each candidate, snapshot its `FreePool`, then iterate
+///    members in declaration order. For each member call
+///    `place_one_in_pool`; if the member places, deduct from the
+///    pool and continue. On any miss, abandon this candidate.
+/// 3. First fully-satisfying candidate wins. If none satisfies all
+///    members, return `PackInfeasible(members.len())`.
 fn place_pack(
     group: &PlacementGroup,
-    _ads: &[NodeAd],
+    ads: &[NodeAd],
 ) -> Result<Vec<(String, NodeId)>, GroupPlaceError> {
+    let mut ranked: Vec<&NodeAd> = ads.iter().collect();
+    ranked.sort_by(rank_pack_desc);
+    for ad in ranked {
+        if let Some(_picks) = try_pack_on(ad, &group.members) {
+            return Ok(group
+                .members
+                .iter()
+                .map(|m| (m.label.clone(), ad.node_id))
+                .collect());
+        }
+    }
     Err(GroupPlaceError::PackInfeasible(group.members.len()))
+}
+
+/// Try to place every member on a single ad. Returns `Some(picks)`
+/// only if every member is placed; the pool deductions inside the
+/// loop enforce intra-group contention.
+fn try_pack_on(ad: &NodeAd, members: &[GroupMember]) -> Option<Vec<Picked>> {
+    let mut pool = FreePool::from_ad(ad);
+    let mut chosen: Vec<Picked> = Vec::with_capacity(members.len());
+    for m in members {
+        match place_one_in_pool(&m.req, ad, &pool) {
+            Some(picked) => {
+                pool.deduct(&picked);
+                chosen.push(picked);
+            }
+            None => return None,
+        }
+    }
+    Some(chosen)
+}
+
+/// `Vec::sort_by` comparator: ads with the most free GPU memory come
+/// first, ties broken by `node_id` ascending.
+fn rank_pack_desc(a: &&NodeAd, b: &&NodeAd) -> std::cmp::Ordering {
+    let a_free: u64 = a.gpu.iter().filter(|g| !g.in_use).map(|g| g.vram_mb).sum();
+    let b_free: u64 = b.gpu.iter().filter(|g| !g.in_use).map(|g| g.vram_mb).sum();
+    b_free.cmp(&a_free).then_with(|| a.node_id.0.cmp(&b.node_id.0))
 }
 
 /// SPREAD stub — full algorithm lands in the next task. Returns
@@ -140,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn pack_stub_returns_pack_infeasible() {
+    fn pack_with_no_ads_returns_pack_infeasible() {
         let g = PlacementGroup {
             strategy: GroupStrategy::Pack,
             members: vec![member("a", "true"), member("b", "true")],

@@ -8,7 +8,16 @@
 //! `take_gpu` / `take_cpu` / `take_ram`. Accessors expose the current
 //! free state so a member-level placer can test predicates against a
 //! pool rather than the raw ad.
+//!
+//! [`place_one_in_pool`] is the per-member picker used by PACK: it
+//! projects the pool back into a synthetic `NodeAd` (in-use bits
+//! reflect the pool state), checks the member's requirement against
+//! that view, and — when the requirement references GPU state —
+//! identifies *which* GPU slot is being claimed so the caller can
+//! deduct it before placing the next member.
 
+use crate::ast::Requirement;
+use crate::eval::matches;
 use crate::model::NodeAd;
 use classic_proto::NodeId;
 
@@ -111,6 +120,123 @@ impl FreePool {
             false
         }
     }
+
+    /// Apply the deductions in `picked` (best-effort; out-of-range
+    /// indices or over-deductions are ignored — they shouldn't happen
+    /// in practice because [`place_one_in_pool`] only returns indices
+    /// it has just validated as free).
+    pub fn deduct(&mut self, picked: &Picked) {
+        if let Some(idx) = picked.gpu_idx {
+            let _ = self.take_gpu(idx);
+        }
+        let _ = self.take_cpu(picked.cpu_slots);
+        let _ = self.take_ram(picked.ram_mb);
+    }
+}
+
+/// What a single member of a placement group claims from a node's
+/// free pool. v1 tracks an optional GPU slot index (whichever one the
+/// member's requirement uniquely identifies) plus CPU slot and RAM
+/// counts. v1 doesn't infer CPU/RAM costs from predicates — those
+/// fields are zero until callers wire explicit reservations into
+/// member specs.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Picked {
+    pub gpu_idx: Option<usize>,
+    pub cpu_slots: u32,
+    pub ram_mb: u64,
+}
+
+/// Project the original `ad` through the live state of `pool`. The
+/// returned NodeAd is a clone of `ad` with `gpu[i].in_use` rewritten
+/// to mirror `pool.gpu_in_use[i]`. Predicate evaluation against the
+/// view reflects ongoing PACK deductions.
+pub fn pool_view(ad: &NodeAd, pool: &FreePool) -> NodeAd {
+    let mut view = ad.clone();
+    for (i, g) in view.gpu.iter_mut().enumerate() {
+        g.in_use = !pool.is_gpu_free(i);
+    }
+    view
+}
+
+/// Like `pool_view` but with every GPU forced to `in_use=true`. Used
+/// to detect requirements that don't depend on any specific GPU
+/// being free — if the requirement still matches under "everything
+/// busy", no GPU needs to be claimed.
+fn pool_view_all_busy(ad: &NodeAd) -> NodeAd {
+    let mut view = ad.clone();
+    for g in view.gpu.iter_mut() {
+        g.in_use = true;
+    }
+    view
+}
+
+/// Hypothetical view where only `keep_idx` is free; every other GPU
+/// is marked in_use. Used by the per-member picker to identify which
+/// specific GPU slot the requirement uniquely depends on.
+fn pool_view_only_free(ad: &NodeAd, keep_idx: usize) -> NodeAd {
+    let mut view = ad.clone();
+    for (i, g) in view.gpu.iter_mut().enumerate() {
+        g.in_use = i != keep_idx;
+    }
+    view
+}
+
+/// Per-member picker. Returns `Some(Picked)` if the member's
+/// requirement is satisfiable against the current pool state, with
+/// the `gpu_idx` field naming the slot the member claims (if any).
+///
+/// Algorithm:
+/// 1. Build a view of `ad` reflecting `pool` state. If the
+///    requirement doesn't match, the member can't be placed here.
+/// 2. Build an "all-busy" view (every GPU `in_use=true`). If the
+///    requirement still matches, it doesn't depend on free GPUs —
+///    return a Picked with `gpu_idx=None`.
+/// 3. Otherwise the requirement does depend on a free GPU. Sort the
+///    currently-free GPU slots by `vram_mb` descending (tiebreak by
+///    index ascending) and pick the first whose "this-slot-is-the-only-
+///    free-one" hypothetical view still satisfies the requirement.
+///
+/// Member declaration order (FR-9) decides who wins contention,
+/// because the caller invokes this in order and `pool.deduct`s after
+/// each pick.
+pub fn place_one_in_pool(req: &Requirement, ad: &NodeAd, pool: &FreePool) -> Option<Picked> {
+    let cur = pool_view(ad, pool);
+    if !matches(req, &cur) {
+        return None;
+    }
+    let all_busy = pool_view_all_busy(ad);
+    if matches(req, &all_busy) {
+        // Requirement doesn't need any free GPU.
+        return Some(Picked::default());
+    }
+    // Identify the GPU slot to claim. Prefer the richest free GPU so
+    // earlier members in a contention scenario grab the strongest
+    // hardware (matches FR-9 first-listed-wins semantics).
+    let mut candidates: Vec<usize> = (0..pool.gpu_total())
+        .filter(|&i| pool.is_gpu_free(i))
+        .collect();
+    candidates.sort_by(|&a, &b| {
+        ad.gpu[b]
+            .vram_mb
+            .cmp(&ad.gpu[a].vram_mb)
+            .then(a.cmp(&b))
+    });
+    for &idx in &candidates {
+        let view = pool_view_only_free(ad, idx);
+        if matches(req, &view) {
+            return Some(Picked {
+                gpu_idx: Some(idx),
+                cpu_slots: 0,
+                ram_mb: 0,
+            });
+        }
+    }
+    // The current view matches but no single free GPU is sufficient on
+    // its own — the requirement aggregates over multiple free GPUs and
+    // there isn't enough redundancy left to claim just one. Treat as
+    // unplaceable for v1.
+    None
 }
 
 #[cfg(test)]
