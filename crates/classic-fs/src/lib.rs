@@ -11,8 +11,10 @@
 
 pub mod errno;
 pub mod proto;
+pub mod server;
 
 pub use proto::{
     decode_r, decode_t, encode_r, encode_t, rlerror, tcode, DirEntry, Fid, NineError, Qid,
     RMessage, Stat, Tag, TMessage, MAX_MSIZE,
 };
+pub use server::{EmptyTree, LocalServer, NodeId, StubTree, Tree, ROOT_NODE};
