@@ -40,6 +40,9 @@ pub enum FrameKind {
     SpawnDeny = 0x0302,
     ChildStdio = 0x0303,
     ChildExit = 0x0304,
+    // fs (9P) range (0x0400..=0x04FF) — owned by classic-fs
+    NineReq = 0x0400,
+    NineRsp = 0x0401,
     // place range (0x0500..=0x05FF) — owned by classic-place
     PlaceRequest = 0x0501,
     PlaceResponse = 0x0502,
