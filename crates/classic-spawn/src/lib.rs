@@ -25,7 +25,7 @@ pub mod originator;
 
 pub use deny::{format_candidate_denials, render_deny, terminal_reason, CandidateDenial};
 pub use error::SpawnError;
-pub use exec::{exec_command, ChildExitInfo, ChildHandle, ExecError, STDIO_CHANNEL_CAP};
+pub use exec::{exec_command, ChildExitInfo, ChildHandle, ChildParts, ExecError, STDIO_CHANNEL_CAP};
 pub use executor::{run_executor, LocalAdMatcher, NoOpScopeProvider, ScopeProvider};
 pub use mbox_alloc::MboxAllocator;
 pub use originator::{run_originator, AttemptOutcome, OriginatorState, PeerSpawn, Placer};

@@ -179,18 +179,98 @@ async fn ad_show(
 
 async fn spawn(state_dir: &std::path::Path, args: SpawnArgs) -> Result<(), CliErr> {
     validate_spawn_args(&args)?;
-    // Daemon-side spawn handling lives in classic-spawn (originator +
-    // executor state machines). The CLI ↔ daemon control-socket bridge
-    // for spawn frames is a follow-up — see the partial-completion note
-    // in the classic-vo5 commit. For now we emit a clear "not yet
-    // wired" error so the CLI surface is in place and downstream
-    // integration tests have something concrete to target.
-    let _ = state_dir;
-    Err(CliErr::Other(
-        "spawn-via-control-socket not yet wired; arg parsing is in place \
-         but the daemon-side bridge is a follow-up bead"
-            .into(),
-    ))
+    use classic_proto::{
+        decode_frame, decode_payload, encode_frame, encode_payload, ChildExit, ChildStdio,
+        Frame, FrameKind, SpawnDeny, SpawnRequest, StdioStream,
+    };
+    use std::io::Write;
+    use tokio::net::UnixStream;
+
+    let path = state_dir.join("spawn.sock");
+    let stream = UnixStream::connect(&path)
+        .await
+        .map_err(|e| CliErr::Other(format!("connect {}: {e}", path.display())))?;
+    let (read, write) = stream.into_split();
+    let mut read = read;
+    let mut write = write;
+
+    let req = SpawnRequest {
+        req_id: rand_req_id(),
+        requires: args.requires.clone(),
+        rank: args.rank.clone().unwrap_or_default(),
+        argv: args.argv.clone(),
+        env: args.env.clone(),
+        exclusive_device: args.exclusive_device,
+        stdin_kind: None, // stdin streaming is a future enhancement
+        hop: 0,
+    };
+    let body = encode_payload(&req)
+        .map_err(|e| CliErr::Other(format!("encode SpawnRequest: {e}")))?;
+    let req_frame = Frame::new(FrameKind::SpawnRequest as u16, body.into());
+    encode_frame(&mut write, &req_frame)
+        .await
+        .map_err(|e| CliErr::Other(format!("write SpawnRequest: {e}")))?;
+
+    let mut exit_code: Option<u8> = None;
+    loop {
+        let frame = match decode_frame(&mut read).await {
+            Ok(f) => f,
+            Err(_) => break, // peer closed
+        };
+        match frame.kind {
+            k if k == FrameKind::SpawnAck as u16 => {
+                // ignored — wait for ChildStdio / ChildExit
+            }
+            k if k == FrameKind::SpawnDeny as u16 => {
+                let deny: SpawnDeny =
+                    decode_payload(&frame.payload).map_err(|e| CliErr::Other(e.to_string()))?;
+                let msg = classic_spawn::deny::render_deny(&deny);
+                return Err(CliErr::Spawn(msg));
+            }
+            k if k == FrameKind::ChildStdio as u16 => {
+                let cs: ChildStdio =
+                    decode_payload(&frame.payload).map_err(|e| CliErr::Other(e.to_string()))?;
+                match cs.stream {
+                    StdioStream::Stdout => {
+                        let _ = std::io::stdout().write_all(&cs.data);
+                    }
+                    StdioStream::Stderr => {
+                        let _ = std::io::stderr().write_all(&cs.data);
+                    }
+                    StdioStream::Stdin => {} // not directed at the CLI
+                }
+            }
+            k if k == FrameKind::ChildExit as u16 => {
+                let ex: ChildExit =
+                    decode_payload(&frame.payload).map_err(|e| CliErr::Other(e.to_string()))?;
+                exit_code = Some(match (ex.code, ex.signal) {
+                    (Some(c), _) => (c as u32 & 0xFF) as u8,
+                    (None, Some(s)) => (128 + (s as u32 & 0x7F)) as u8,
+                    _ => 1,
+                });
+                // ChildExit is terminal; the daemon also half-closes
+                // the write side after this frame.
+            }
+            _ => {} // ignore unknown
+        }
+    }
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+
+    match exit_code {
+        Some(c) => Err(CliErr::Exit(c)),
+        None => Err(CliErr::Other(
+            "daemon closed connection without ChildExit".into(),
+        )),
+    }
+}
+
+fn rand_req_id() -> u64 {
+    use std::time::SystemTime;
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(1)
 }
 
 fn validate_spawn_args(args: &SpawnArgs) -> Result<(), CliErr> {

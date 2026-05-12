@@ -13,6 +13,7 @@ pub mod node_id;
 pub mod peers;
 pub mod proto_handler;
 pub mod shutdown;
+pub mod spawn_socket;
 
 pub use config::{Config, ConfigError, LogConfig, NodeConfig};
 pub use link::{
@@ -140,17 +141,34 @@ pub async fn spawn_node_with_ad_config(
     let ctrl_task = control::spawn(
         cfg.node.state_dir.clone(),
         ad_handles.store.clone(),
-        ctrl_shutdown_rx,
+        ctrl_shutdown_rx.clone(),
     )
     .await
     .map_err(|e| NodeError::Ad(format!("admin socket: {e}")))?;
+
+    // Bring up the spawn UDS for `classic spawn`. Same shutdown
+    // channel as the admin socket so a single signal cleans up both.
+    let mbox_alloc = Arc::new(classic_spawn::MboxAllocator::new());
+    let spawn_task = spawn_socket::spawn(
+        cfg.node.state_dir.clone(),
+        self_id,
+        mbox_alloc,
+        ctrl_shutdown_rx,
+    )
+    .await
+    .map_err(|e| NodeError::Ad(format!("spawn socket: {e}")))?;
 
     Ok(NodeHandle {
         mesh,
         listen_addr,
         self_id,
         ad_store: ad_handles.store,
-        ad_tasks: vec![ad_handles.discovery_task, ad_handles.gossip_task, ctrl_task],
+        ad_tasks: vec![
+            ad_handles.discovery_task,
+            ad_handles.gossip_task,
+            ctrl_task,
+            spawn_task,
+        ],
         ctrl_shutdown_tx: Some(ctrl_shutdown_tx),
     })
 }

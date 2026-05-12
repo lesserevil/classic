@@ -192,6 +192,7 @@ dependencies = [
  "classic-ad",
  "classic-node",
  "classic-proto",
+ "classic-spawn",
  "serde_json",
  "tokio",
 ]
