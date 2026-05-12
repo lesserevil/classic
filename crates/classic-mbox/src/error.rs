@@ -1,15 +1,23 @@
-//! Errors produced by the mailbox subsystem. Placeholder shell for plan-05
-//! Task 1 — the delivery / gossip / GC tasks fill in the rest of the
-//! variants.
+//! Errors produced by the mailbox subsystem.
+
+use classic_proto::NodeId;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MailError {
-    /// Wire payload exceeds the per-frame cap (8 MiB per plan-05).
-    /// Populated by the cross-node send task.
-    #[error("payload too large: {0} bytes")]
+    /// Wire payload exceeds `MAX_MAIL_BYTES` (8 MiB per plan-05).
+    #[error("payload too large: {0} bytes (cap is 8 MiB)")]
     PayloadTooLarge(usize),
-    /// No live connection to the target node. Surfaced by the cross-node
-    /// send task; in-process sends never see this.
+    /// No live peer connection to the target node. Cross-node send path
+    /// will surface this; the in-process path never does.
     #[error("no live connection to peer node {0:?}")]
-    NoPeer(classic_proto::NodeId),
+    NoPeer(NodeId),
+    /// Cross-node dispatch is stubbed pending classic-zgg (Task 3 of
+    /// plan-05). Local sends work; remote sends return this.
+    #[error("cross-node mail_send not yet wired (classic-zgg follow-up)")]
+    NotConnected,
+    /// `mail_send` was called before `init(self_node_id)`. Daemon
+    /// startup should always init the registry first; tests can call
+    /// the init helper directly.
+    #[error("classic_mbox::init(self_node_id) has not been called")]
+    NotInitialized,
 }

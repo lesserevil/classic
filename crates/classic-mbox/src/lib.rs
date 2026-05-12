@@ -15,6 +15,10 @@
 
 pub mod error;
 pub mod mbox;
+pub mod send;
 
 pub use error::MailError;
 pub use mbox::{lookup, select_mboxes, try_deliver_local, Mailbox, MailboxRecv, MBOX_CAPACITY};
+pub use send::{
+    init, mail_send, self_node_id, LOCAL_FULL_DROPS, LOCAL_MISSING_DROPS, MAX_MAIL_BYTES,
+};
